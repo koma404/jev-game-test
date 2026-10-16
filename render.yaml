@@ -1,0 +1,24 @@
+# Render 部署蓝图（免费版）：Render 后台 New → Blueprint，选这个仓库和分支即可。
+# 带 sync: false 的变量在 Render 后台填，不进仓库。
+services:
+  - type: web
+    name: twelve
+    runtime: python
+    plan: free
+    region: singapore          # 离国内和 OpenRouter 都比较近；免费版若不支持该地区，Render 会提示改选
+    buildCommand: python --version   # 只用标准库，没有依赖要装
+    startCommand: python -m twelve.server --jev real --log-dir /tmp/twelve-logs --daily-budget 0.5
+    healthCheckPath: /
+    envVars:
+      - key: TYPESAFE_API_KEY          # OpenRouter key：务必在 OpenRouter 后台给它设额度上限
+        sync: false
+      - key: TWELVE_ACCESS_CODE        # 访问口令
+        sync: false
+      - key: TYPESAFE_BASE_URL
+        value: https://openrouter.ai/api/v1/systemone
+      - key: TYPESAFE_MODEL
+        value: jev-latest
+      - key: TWELVE_TRUST_PROXY        # 在 Render 的负载均衡后面，真实 IP 只在 X-Forwarded-For 里
+        value: "1"
+      - key: PYTHON_VERSION
+        value: "3.12.7"

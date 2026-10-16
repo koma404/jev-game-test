@@ -256,8 +256,11 @@ def make_handler(app: App):
 
         def _ip(self):
             peer = self.client_address[0]
-            fwd = self.headers.get("X-Forwarded-For")
-            # 经内网穿透/反向代理进来时，对端是本机，真实 IP 在 X-Forwarded-For 里；外部直连时不信这个头
+            fwd = self.headers.get("CF-Connecting-IP") or self.headers.get("X-Forwarded-For")
+            # 部署在 Render 等平台后面时（TWELVE_TRUST_PROXY=1），对端是平台的负载均衡，真实 IP 只在代理头里
+            if os.environ.get("TWELVE_TRUST_PROXY") == "1":
+                return fwd.split(",")[0].strip() if fwd else None
+            # 经内网穿透/Cloudflare 隧道进来时，对端是本机，真实 IP 在代理头里；外部直连时不信这个头
             if peer in ("127.0.0.1", "::1"):
                 if fwd:
                     return fwd.split(",")[0].strip()
@@ -319,7 +322,8 @@ def main(argv=None) -> int:
             stream.reconfigure(errors="replace")
     ap = argparse.ArgumentParser(description="十二人 —— 网页版")
     ap.add_argument("--host", default="0.0.0.0")
-    ap.add_argument("--port", type=int, default=8000)
+    ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", 8000)),
+                    help="默认 8000；部署平台（Render 等）通过环境变量 PORT 指定")
     ap.add_argument("--jev", choices=["auto", "mock", "real"], default="auto")
     ap.add_argument("--case", default="case1")
     ap.add_argument("--max-sessions", type=int, default=30)

@@ -93,8 +93,8 @@ Jev 的接入方式（OpenRouter 端点、key、代理）与 v0.1 相同，见 `
 - Jev 的弱项是算术、计数、多跳推理：这些全在代码里。也不要让它跨回合追踪对话。
 - 挂到公网时三道闸（`server.py` 的 `Guard`）：访问口令（`--access-code` / `TWELVE_ACCESS_CODE`，分享链接可带 `?code=`）、
   每日花费上限（`--daily-budget` 美元，按 Jev 返回的 `usage.cost` 累计，存 `logs/budget.json`，重启不清零）、
-  每 IP 每小时开庭数（`--max-courts-per-ip`；经内网穿透进来时取 `X-Forwarded-For`，本机连入又没有这个头时无法区分玩家，跳过按 IP 限流）。预览每庭最快 0.15 s 一次。
-  再加一道最硬的：在 OpenRouter 后台给这个 key 设额度上限。Windows 上用 `play_twelve_public.bat`。
+  每 IP 每小时开庭数（`--max-courts-per-ip`；经隧道从本机连入时取 `CF-Connecting-IP` / `X-Forwarded-For`，没有这些头时无法区分玩家，跳过按 IP 限流；部署在平台后面用 `TWELVE_TRUST_PROXY=1`）。预览每庭最快 0.15 s 一次。
+  再加一道最硬的：在 OpenRouter 后台给这个 key 设额度上限。Windows 上用 `play_twelve_public.bat` / `play_twelve_cloudflare.bat`，云端用 `render.yaml`。
 - 成本实测：每次判断约 2,600 输入 token、$0.00011；一局 100–600 次预览 ≈ $0.01–0.07（¥0.1–0.5）。
 
 ## 7. 实测记录
@@ -135,14 +135,23 @@ Jev 不开源，只能用托管 API。社区有接口兼容的开源 System One 
   本机/局域网地址的请求花费按 0 计（`link.py` 的 `is_local`）。
 - 演示含义会变：展示的是"System One 这一类模型"，不是 TypeSafe 的 Jev 本身。
 
-## 9. 用 cpolar 挂公网（Windows）
+## 9. 挂到公网
 
-1. cpolar 官网注册、下载 Windows 安装包装好；命令行执行一次 `cpolar authtoken <后台里的 token>`。
-2. 双击 `play_twelve_public.bat`，设访问口令，窗口别关。
-3. 另开命令行：`cpolar http 8000`，"Forwarding" 那行（或浏览器 `localhost:9200` → 在线隧道列表）就是公网地址。
-4. 分享 `https://公网地址/?code=口令`；在 OpenRouter 后台给 key 设额度上限。
-- 免费档地址随机、24 小时内会变；固定二级子域名要基础套餐，自定义域名要专业套餐且大陆节点需 ICP 备案。
-- 电脑不能睡眠；Clash 用规则模式（国内直连），全局模式会把 cpolar 的流量绕到海外。
+国内内网穿透（cpolar 等）要求手机号实名，走不通，改用境外服务（邮箱或 GitHub 登录即可）。
+不管哪条路，**都要在 OpenRouter 后台给 key 设额度上限**——这是唯一不会被重启、休眠清零的硬上限。
+
+**A. Cloudflare 快速隧道（推荐先试：不用注册、不花钱，跑在自己电脑上）**
+1. 从 Cloudflare 官网下载 Windows 版 `cloudflared.exe`，放到项目目录（已在 `.gitignore`）。
+2. 双击 `play_twelve_cloudflare.bat`：设口令 → 自动开服务窗口 → 隧道窗口里打印 `https://xxxx.trycloudflare.com`。
+3. 分享 `https://xxxx.trycloudflare.com/?code=口令`。
+- 地址每次运行都变；最多 200 个并发请求；无可用性保证；大陆访问 Cloudflare 有时慢或不稳，先让朋友试。
+- 玩家真实 IP 从 `CF-Connecting-IP` / `X-Forwarded-For` 取（隧道从本机连进来）。
+
+**B. Render 免费版（地址固定、电脑可关机）**
+1. 用 GitHub 登录 Render → New → Blueprint → 选本仓库和分支，读取根目录 `render.yaml`。
+2. 在 Render 后台填 `TYPESAFE_API_KEY`、`TWELVE_ACCESS_CODE`。
+- 闲置 15 分钟休眠，下次访问约 1 分钟唤醒；每月 750 小时免费；磁盘不保留——**每日花费记录在休眠/重启后清零**，所以 OpenRouter 的额度上限更重要。
+- 在平台负载均衡后面，`TWELVE_TRUST_PROXY=1` 让服务端从 `X-Forwarded-For` 取真实 IP；端口读环境变量 `PORT`。
 
 ## 10. 下一步
 

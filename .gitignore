@@ -4,3 +4,4 @@ game/logs/
 *.key
 key.txt
 twelve/logs/
+cloudflared.exe

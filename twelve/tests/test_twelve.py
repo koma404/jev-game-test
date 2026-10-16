@@ -138,6 +138,23 @@ class ServerTests(unittest.TestCase):
         except urllib.error.HTTPError as e:
             return e.code, json.loads(e.read())
 
+    def test_client_ip_from_proxy_headers(self):
+        import os
+        def ip_for(headers, peer):
+            h = make_handler(App(__import__("argparse").Namespace(case="case1", jev="mock", log_dir="", max_sessions=5)))
+            o = object.__new__(h)
+            o.client_address = (peer, 1)
+            o.headers = headers
+            return o._ip()
+        self.assertEqual(ip_for({"X-Forwarded-For": "1.1.1.1, 10.0.0.1"}, "127.0.0.1"), "1.1.1.1")
+        self.assertEqual(ip_for({"CF-Connecting-IP": "2.2.2.2"}, "127.0.0.1"), "2.2.2.2")
+        self.assertEqual(ip_for({"X-Forwarded-For": "1.1.1.1"}, "8.8.8.8"), "8.8.8.8")   # 外部直连不信代理头
+        os.environ["TWELVE_TRUST_PROXY"] = "1"
+        try:
+            self.assertEqual(ip_for({"X-Forwarded-For": "3.3.3.3"}, "10.1.2.3"), "3.3.3.3")
+        finally:
+            os.environ.pop("TWELVE_TRUST_PROXY")
+
     def test_page_served_with_query_string(self):
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         with opener.open(self.base + "/?code=abc") as r:
