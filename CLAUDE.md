@@ -227,3 +227,16 @@ python -m unittest discover -s game/tests -t .      # 单元测试
 ```
 
 接入真实 Jev：设置 `TYPESAFE_API_KEY`（或权限 600 的 `TYPESAFE_KEY_FILE`），可选 `TYPESAFE_BASE_URL`、`TYPESAFE_MODEL`（用 DigitalOcean 等兼容端点时改这两个）。日志默认写入 `game/logs/`（`turns.jsonl` 全量，`low_conf.jsonl` 为反问/落到 none 的输入）。
+
+### OpenRouter 上的 Jev（已核对文档，尚未用真实 key 跑过）
+
+OpenRouter 提供与 TypeSafe 请求格式一致的 System One 端点，`RealJev` 无需改代码：
+
+```
+TYPESAFE_BASE_URL=https://openrouter.ai/api/v1/systemone   # 注意是完整地址，不是前缀
+TYPESAFE_API_KEY=<OpenRouter key>
+TYPESAFE_MODEL=jev-latest        # 映射到 ~typesafe/jev-latest（当前 Jev 1.14）；要对照设计文档用 jev-1.13
+```
+
+- 用云环境的"网络密钥"（Bearer，允许 `openrouter.ai`，路径前缀 `/api/v1/`）时，key 由代理在请求发出时附加，本地只需给 `TYPESAFE_API_KEY` 填任意占位值。
+- 下一步：用真实 Jev 跑 `python -m game.tests.eval_intents --jev real`，与 Mock 的 26/26 对比；再整局通关，把低置信度/选错的输入补进规则和 `tests/intents.jsonl`。
