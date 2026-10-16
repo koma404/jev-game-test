@@ -117,6 +117,12 @@ class App:
         if path == "/api/begin":
             t.begin()
             return 200, {"time_left": t.time_left()}, sid
+        if path == "/api/hint":
+            if t.over:
+                return 200, {"over": True, "verdict": t.verdict()}, sid
+            h = t.hint()
+            c.log({"event": "hint", **h})
+            return 200, {**h, "time_left": t.time_left()}, sid
         if path == "/api/verdict":
             t.rested = True
             v = t.verdict()
@@ -146,7 +152,7 @@ class App:
                 sp = t.speak(text, jd)
                 c.log({"event": "say", **t.history[-1], "ms": round(jd.ms)})
                 return 200, {"faces": t.faces(sp.deltas), "reactions": sp.reactions, "notes": sp.notes,
-                             "votes": sp.votes, "leans": t.leans, "ms": round(jd.ms),
+                             "votes": sp.votes, "need": self.case["config"]["win_votes"], "leans": t.leans, "ms": round(jd.ms),
                              "time_left": t.time_left()}, sid
             finally:
                 c.say_lock.release()

@@ -28,7 +28,8 @@
     "manip_backlash": 0.6,
     "hit_threshold": 0.5,
     "face_threshold": 0.3,
-    "preview_debounce_ms": 300
+    "preview_debounce_ms": 0,
+    "hint_cost": 10
   },
   "arguments": {
     "cctv": "监控画面看不清脸，无法认定是张伟",
@@ -110,6 +111,9 @@
     "diluted": "你一口气说了太多，陪审员们没抓住重点。",
     "repeated": "（这个论点你已经讲过了，效果在减弱。）",
     "silent": "陪审员们静静地看着你，没有人动。",
+    "hint_concern": "{name}（{role}）离被说服最近。这位陪审员似乎很在意：{concern}。",
+    "hint_dislike": "{name}很反感：{dislike}。跟这位说话时别踩雷。",
+    "hint_none": "所有陪审员都倾向无罪了。稳住，别说错话。",
     "win": "陪审团宣读裁决：无罪。张伟愣了几秒，捂住了脸。",
     "lose": "陪审团宣读裁决：有罪。张伟低下头，没有再看你。"
   },

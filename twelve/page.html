@@ -45,6 +45,10 @@ button{font:inherit;padding:10px 16px;border:0;border-radius:8px;background:var(
 button.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
 button:disabled{opacity:.5;cursor:default}
 #count{font-size:12px;color:var(--dim);text-align:right}
+#chips{margin-top:8px} #chips button{padding:4px 10px;font-size:13px;margin:0 6px 6px 0}
+#hint{margin-left:8px}
+.tip{color:#8a5a00;font-size:14px} .tip:before{content:"※ "}
+#box ol{padding-left:20px} #box li{margin:6px 0}
 #overlay{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;padding:16px}
 #overlay .box{background:var(--card);color:var(--fg);max-width:620px;width:100%;max-height:90vh;overflow-y:auto;border-radius:12px;padding:20px 22px}
 #overlay h2{margin:0 0 8px;color:var(--accent)}
@@ -68,10 +72,12 @@ button:disabled{opacity:.5;cursor:default}
         <button id="go" disabled>说出口</button>
       </div>
       <div id="count"></div>
+      <div id="chips"></div>
     </div>
     <div class="panel" id="dossier">
       <b>案卷</b>
       <ol id="facts"></ol>
+      <p><button id="hint" class="ghost" disabled>提示（扣 10 秒）</button></p>
       <button id="rest" class="ghost" disabled>结束陈词，请陪审团裁决</button>
     </div>
   </div>
@@ -120,7 +126,7 @@ button:disabled{opacity:.5;cursor:default}
   // ---- 预览：停顿后把草稿发过去，同时只保留一个在途请求，只认最新草稿 ----
   // 每 100ms 看一眼输入框：内容停止变化超过 debounce 就发预览。
   // 不完全依赖输入法事件——有些输入法/浏览器不发 compositionend，那样会永远以为"还在拼音"。
-  var lastVal='', lastChange=0, lastComp=0;
+  var lastVal='', lastChange=0, lastComp=0, lastActive=new Date().getTime(), idleTipped=false;
   function status(t, err){ $('ms').textContent=t; $('ms').className=err?'err':''; }
   function poll(){
     if(!started||over) return;
@@ -128,6 +134,9 @@ button:disabled{opacity:.5;cursor:default}
     if(v!==lastVal){ lastVal=v; lastChange=now; }
     if(composing && now-lastComp>1500) composing=false;     // 输入法事件卡住：1.5 秒没动静就当已上屏
     if(!composing && now-lastChange>=debounce) preview();
+    if(v || inflight) lastActive=now;
+    if(!v && !inflight && now-lastActive>20000 && !idleTipped){ idleTipped=true;
+      log('tip', '不知道说什么？看看右边的案卷，或者点「提示」，看看谁最容易被说服。'); }
   }
   function schedule(){}
   function preview(){
@@ -137,7 +146,7 @@ button:disabled{opacity:.5;cursor:default}
     if(text===lastSent) return;
     if(inflight){ pending=true; return; }
     inflight=true; lastSent=text; var my=++seq;
-    status('预览中…');
+    status('陪审员在听…');
     post('/api/preview', {text:text}, function(s, r){
       inflight=false;
       if(s!==200 || r.error){ status('预览出错：'+(r.error||('HTTP '+s)), true); lastSent=null; return; }
@@ -162,6 +171,21 @@ button:disabled{opacity:.5;cursor:default}
       for(var k=0;k<r.notes.length;k++) log('note', r.notes[k]);
       flash(r.reactions);
       if(r.ms) $('ms').textContent='Jev 往返 '+r.ms+' ms';
+      var gap=(r.need||C.win_votes)-r.votes;
+      log('tip', gap>0 ? '现在 '+r.votes+' 人倾向无罪，还差 '+gap+' 人。' : '已经有 '+r.votes+' 人倾向无罪，够了。可以结束陈词，也可以继续巩固。');
+      $('chips').innerHTML=''; lastActive=new Date().getTime(); idleTipped=false;
+    });
+  }
+
+  function hint(){
+    if(!started||over) return;
+    $('hint').disabled=true;
+    post('/api/hint', {}, function(s, r){
+      $('hint').disabled=false;
+      if(r.over) return finish(r.verdict);
+      if(r.text){ log('tip', r.text); deadline=new Date().getTime()+r.time_left*1000; tick();
+        if(r.juror){ var c=$('j_'+r.juror); c.className+=' flash-up'; setTimeout(function(){ setLeans(leans); }, 2500); } }
+      lastActive=new Date().getTime(); idleTipped=false;
     });
   }
 
@@ -188,8 +212,13 @@ button:disabled{opacity:.5;cursor:default}
   function begin(){
     post('/api/begin', {}, function(s, r){
       $('overlay').style.display='none'; started=true;
-      deadline=new Date().getTime()+r.time_left*1000; tick(); timerId=setInterval(tick, 250); setInterval(poll, 100);
-      $('in').disabled=false; $('go').disabled=false; $('rest').disabled=false; $('in').placeholder='说服他们。停顿时看他们的脸，按回车说出口。'; $('in').focus();
+      deadline=new Date().getTime()+r.time_left*1000; tick(); timerId=setInterval(tick, 250); setInterval(poll, 50);
+      $('in').disabled=false; $('go').disabled=false; $('rest').disabled=false; $('hint').disabled=false;
+      log('tip', '开庭了。在下面输入一句辩护的话，停一下，看看谁点头、谁皱眉；满意了再按回车。');
+      var ex=['凌晨的监控里，那个人的脸根本看不清。','他在这家公司守了八年夜，从没出过错。'], h='';
+      for(var i=0;i<ex.length;i++) h+='<button class="ghost ex">试一句：'+esc(ex[i])+'</button>';
+      $('chips').innerHTML=h; var bs=$('chips').getElementsByTagName('button');
+      for(var k=0;k<bs.length;k++) bs[k].onclick=(function(t){ return function(){ $('in').value=t; $('in').focus(); }; })(ex[k]); $('in').placeholder='说服他们。停顿时看他们的脸，按回车说出口。'; $('in').focus();
     });
   }
 
@@ -202,11 +231,11 @@ button:disabled{opacity:.5;cursor:default}
   inp.addEventListener('keydown', function(e){
     if(e.keyCode===13 && !e.isComposing){ e.preventDefault(); say(); }   // 输入法选字时的回车 keyCode 是 229，不会进这里
   });
-  $('go').onclick=say; $('rest').onclick=function(){ if(confirm('确定结束陈词吗？')) rest(); };
+  $('go').onclick=say; $('hint').onclick=hint; $('rest').onclick=function(){ if(confirm('确定结束陈词吗？')) rest(); };
 
   post('/api/new', {}, function(s, r){
     if(s!==200){ $('box').innerHTML='<h2>无法开庭</h2><p></p>'; $('box').getElementsByTagName('p')[0].textContent=r.error||('错误 '+s); $('overlay').style.display='flex'; return; }
-    C=r.case; jurors=C.jurors; debounce=C.debounce||300;
+    C=r.case; jurors=C.jurors; debounce=(C.debounce==null?120:C.debounce);
     $('title').textContent=C.title; $('need').textContent=C.win_votes; inp.setAttribute('maxlength', C.max_chars);
     var g='';
     for(var i=0;i<jurors.length;i++){ var j=jurors[i];
@@ -215,7 +244,7 @@ button:disabled{opacity:.5;cursor:default}
     var f=''; for(var k=0;k<C.dossier.length;k++) f+='<li>'+esc(C.dossier[k])+'</li>'; $('facts').innerHTML=f;
     var m=Math.floor(C.time_limit/60);
     $('t').textContent=m+':'+('0'+C.time_limit%60).slice(-2);
-    $('box').innerHTML='<h2>'+esc(C.title)+'</h2><p id="brief"></p><p class="note">打字时，陪审员的脸会随你的措辞实时变化；按回车，这句话才算说出口。每个人在意的东西不一样，读懂他们。时间一开始就不会停。</p><p><button id="start">开始陈词</button></p>';
+    $('box').innerHTML='<h2>'+esc(C.title)+'</h2><p id="brief"></p><ol><li>右边的<b>案卷</b>里有你能用的事实。</li><li>在下方输入一句辩护的话。<b>停一下</b>，12 位陪审员的脸会变：<span style="color:#2f8f5b">点头</span>是被打动，<span style="color:#c0392b">皱眉</span>是反感。</li><li>满意了按<b>回车</b>，这句话才算说出口。脸下面的条是他们的倾向，<span style="color:#2f8f5b">绿色</span>就是倾向无罪。</li><li>每个人在意的东西不一样：同一句话，有人点头，有人皱眉。卡住了就点<b>提示</b>（扣 10 秒）。</li></ol><p class="note">时间一开始就不会停。别想着下命令——陪审员不吃这一套。</p><p><button id="start">开始陈词</button></p>';
     $('brief').textContent=C.brief; $('overlay').style.display='flex'; $('start').onclick=begin;
     if(r.backend==='mock') $('ms').textContent='（离线模拟模式）';
   });

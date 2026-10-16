@@ -73,6 +73,19 @@ class TrialTests(unittest.TestCase):
         self.assertEqual(faces["han"], 1)
         self.assertEqual(self.t.leans, before)
 
+    def test_hint_points_at_closest_guilty_juror_and_costs_time(self):
+        self.t.begin()
+        before = self.t.time_left()
+        h = self.t.hint()
+        guilty = [j for j in self.case["jurors"] if self.t.leans[j["id"]] <= 0]
+        closest = max(guilty, key=lambda j: self.t.leans[j["id"]])
+        self.assertEqual(h["juror"], closest["id"])
+        self.assertIn(closest["concern"], h["text"])
+        self.assertAlmostEqual(self.t.time_left(), before - self.case["config"]["hint_cost"], delta=0.01)
+        h2 = self.t.hint()                                   # 再要一次：同一人的雷区
+        self.assertEqual(h2["juror"], closest["id"])
+        self.assertIn(closest["dislike"], h2["text"])
+
     def test_timer_and_verdict(self):
         self.t.begin()
         self.clock.t += self.case["config"]["time_limit"] + 1

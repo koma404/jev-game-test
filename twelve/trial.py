@@ -47,6 +47,9 @@ class Trial:
         self.manip_strikes = 0
         self.started_at: float | None = None
         self.rested = False
+        self.penalty = 0.0          # 用提示等扣掉的秒数
+        self.touched: set = set()   # 已经被说出口的话戳中过的陪审员
+        self.hinted: dict = {}      # 陪审员 -> 已经提示到第几层（1=在意点，2=雷区）
 
     # ---- 时间 ----
     def begin(self):
@@ -56,7 +59,7 @@ class Trial:
     def time_left(self) -> float:
         if self.started_at is None:
             return float(self.cfg["time_limit"])
-        return max(0.0, self.cfg["time_limit"] - (self.clock() - self.started_at))
+        return max(0.0, self.cfg["time_limit"] - self.penalty - (self.clock() - self.started_at))
 
     @property
     def over(self) -> bool:
@@ -104,6 +107,7 @@ class Trial:
         else:
             if jd.argument != "none":
                 self.arg_uses[jd.argument] = self.arg_uses.get(jd.argument, 0) + 1
+            self.touched.update(eff.hit_ids)
             if eff.diluted:
                 notes.append(self.case["texts"]["diluted"])
             if eff.repeated:
@@ -123,6 +127,26 @@ class Trial:
                              "hits": {k: round(v, 3) for k, v in jd.hits.items()},
                              "dislikes": {k: round(v, 3) for k, v in jd.dislikes.items()}})
         return sp
+
+    # ---- 提示（代码给，花时间换）----
+    def hint(self) -> dict:
+        """挑一位还倾向有罪、但离翻转最近的陪审员，揭示 TA 在意什么；再要一次就揭示 TA 的雷区。"""
+        t = self.case["texts"]
+        self.penalty += self.cfg.get("hint_cost", 10)
+        guilty = sorted((j for j in self.jurors if self.leans[j["id"]] <= 0),
+                        key=lambda j: -self.leans[j["id"]])
+        for j in guilty:
+            k, lvl = j["id"], self.hinted.get(j["id"], 0)
+            if lvl == 0 and k not in self.touched:
+                self.hinted[k] = 1
+                return {"juror": k, "text": t["hint_concern"].format(**j)}
+            if lvl < 2:
+                self.hinted[k] = 2
+                return {"juror": k, "text": t["hint_dislike"].format(**j)}
+        if guilty:
+            j = guilty[0]
+            return {"juror": j["id"], "text": t["hint_concern"].format(**j)}
+        return {"juror": None, "text": t["hint_none"]}
 
     # ---- 裁决 ----
     def votes(self) -> int:
