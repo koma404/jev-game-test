@@ -22,7 +22,7 @@ class WorldTests(unittest.TestCase):
 
     def test_initial_hall(self):
         ids = self.ids(self.w.initial())
-        self.assertEqual(ids, {"go_archive", "examine_shutter", "talk_zhou", "look_around", "check_items"})
+        self.assertEqual(ids, {"go_archive", "examine_shutter", "talk_zhou", "look_around", "check_items", "ask_hint"})
 
     def test_drawer_needs_both_clues_and_code(self):
         st = State("archive")
@@ -298,6 +298,42 @@ class HintTests(unittest.TestCase):
             idx, levels = w.hint_stage(State("hall", frozenset(flags), frozenset(items)))
             self.assertGreaterEqual(idx, 0, (flags, items))
             self.assertEqual(len(levels), 3)
+
+
+class GuidanceTests(unittest.TestCase):
+    def test_elsewhere_gives_directions_without_changing_state(self):
+        e = Engine(World(), MockJev(), state=State("archive"))
+        before = e.state
+        r = e.turn("找老周")
+        self.assertEqual(r.kind, "elsewhere")
+        self.assertIn("大厅", r.text)
+        self.assertEqual(e.state, before)
+
+    def test_elsewhere_only_offered_when_only_room_differs(self):
+        w = World()
+        ids = {r["id"] for r in w.elsewhere_rules(State("archive"))}
+        self.assertIn("talk_zhou", ids)
+        self.assertNotIn("use_keycard", ids)           # 还没有门禁卡
+        ids = {r["id"] for r in w.elsewhere_rules(State("archive", items=frozenset({"keycard"})))}
+        self.assertIn("use_keycard", ids)
+
+    def test_npc_lines_rotate_instead_of_repeating(self):
+        e = Engine(World(), MockJev())
+        lines = [e.turn("老周，你好").text for _ in range(3)]
+        self.assertEqual(len(set(lines)), 3)
+
+    def test_spoilers_follow_progress(self):
+        w = World()
+        self.assertIn("门禁卡", w.active_spoilers(State("archive")))
+        self.assertNotIn("门禁卡", w.active_spoilers(State("archive", items=frozenset({"keycard"}))))
+        self.assertIn("0417", w.active_spoilers(State("hall")))
+        self.assertNotIn("0417", w.active_spoilers(State("hall", frozenset({"zhou_open"}))))
+
+    def test_item_names_and_hint_via_natural_language(self):
+        w = World()
+        self.assertEqual(w.item_name("keycard"), "蓝色门禁卡")
+        e = Engine(w, MockJev())
+        self.assertIn("提示", e.turn("给我提示").text)
 
 
 class FlavorHandler(BaseHTTPRequestHandler):

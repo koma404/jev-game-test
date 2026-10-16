@@ -57,13 +57,14 @@ def main(argv=None) -> int:
 
     writer = None
     if isinstance(jev, RealJev) and not args.no_flavor:
-        writer = FlavorWriter.from_jev(jev, spoilers=world.level.get("flavor", {}).get("spoilers", ()))
+        writer = FlavorWriter.from_jev(jev)
 
     fails = {"n": 0}
 
     def flavor(said, scene, fallback):
         if fails["n"] >= 3:   # 连续失败就别再让玩家白等了
             return fallback
+        writer.spoilers = tuple(world.active_spoilers(eng.state))
         text = writer.write(said, scene, fallback)
         if writer.last_error:
             fails["n"] += 1
@@ -97,11 +98,13 @@ def main(argv=None) -> int:
         elif line == "/look":
             print(world.describe(eng.state))
         elif line == "/inv":
-            print("物品: " + (", ".join(sorted(eng.state.items)) or "无"))
+            print("物品: " + (", ".join(world.item_name(i) for i in sorted(eng.state.items)) or "无"))
         elif line == "/hint":
             print(eng.hint())
         elif line == "/clues":
             print("线索: " + ("; ".join(eng.clues) or "无"))
+        elif line.startswith("/"):
+            print("不认识这个命令。可用：/look /inv /clues /hint /quit")
         else:
             if isinstance(jev, RealJev):
                 print("  （等待 Jev 回应……）", flush=True)

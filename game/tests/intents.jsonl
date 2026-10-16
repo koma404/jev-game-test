@@ -4,7 +4,7 @@
 {"state": {"room": "hall", "flags": [], "items": []}, "text": "我想去档案室看看", "expect": "go_archive"}
 {"state": {"room": "hall", "flags": [], "items": []}, "text": "先去档案室，然后找小林聊聊", "expect": "go_archive"}
 {"state": {"room": "hall", "flags": [], "items": []}, "text": "那个东西能打开吗", "expect": "clarify"}
-{"state": {"room": "hall", "flags": [], "items": []}, "text": "这个怎么弄", "expect": "clarify"}
+{"state": {"room": "hall", "flags": [], "items": []}, "text": "这个怎么弄", "expect": "ask_hint"}
 {"state": {"room": "hall", "flags": [], "items": []}, "text": "检查一下卷帘门", "expect": "examine_shutter"}
 {"state": {"room": "hall", "flags": [], "items": []}, "text": "今天天气真不错", "expect": "none"}
 {"state": {"room": "hall", "flags": [], "items": []}, "text": "我直接撬开机房的门", "expect": "none"}
@@ -32,3 +32,12 @@
 {"text": "你好", "state": {"room": "hall", "flags": [], "items": []}, "expect": "talk_zhou"}
 {"text": "老周你好呀", "state": {"room": "hall", "flags": [], "items": []}, "expect": "talk_zhou"}
 {"text": "小林你好", "state": {"room": "archive", "flags": [], "items": []}, "expect": "talk_lin"}
+{"state": {"room": "archive", "flags": [], "items": []}, "text": "找老周", "expect": "at_talk_zhou"}
+{"state": {"room": "archive", "flags": [], "items": ["keycard"]}, "text": "用门禁卡开门", "expect": "at_use_keycard"}
+{"state": {"room": "archive", "flags": [], "items": []}, "text": "输入密码", "expect": "examine_drawer"}
+{"state": {"room": "archive", "flags": [], "items": []}, "text": "怎么开抽屉", "expect": "clarify"}
+{"state": {"room": "hall", "flags": [], "items": []}, "text": "去找小林聊聊", "expect": "at_talk_lin"}
+{"state": {"room": "hall", "flags": [], "items": []}, "text": "给我提示", "expect": "ask_hint"}
+{"state": {"room": "hall", "flags": [], "items": []}, "text": "老周，你好帅", "expect": "talk_zhou"}
+{"state": {"room": "archive", "flags": [], "items": []}, "text": "小林，你真厉害", "expect": "talk_lin"}
+{"state": {"room": "basement", "flags": [], "items": []}, "text": "我想去档案室", "expect": "at_go_archive"}

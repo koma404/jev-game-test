@@ -25,6 +25,8 @@ def outcome(plan) -> str:
         return "clarify"
     if plan.kind == "refuse":
         return "none"
+    if plan.kind == "elsewhere":
+        return "at_" + plan.rule["id"]
     return plan.rule["id"]
 
 

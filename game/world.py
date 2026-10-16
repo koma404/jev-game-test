@@ -128,6 +128,30 @@ class World:
         return self._apply_effects(state, behavior.get("effects", {}))
 
     # ---- 展示 ----
+    def item_name(self, item: str) -> str:
+        return self.level.get("item_names", {}).get(item, item)
+
+    def elsewhere_rules(self, state: State, code: str | None = None) -> list[dict]:
+        """只差"人不在对的房间"的规则：玩家想做这件事，但这里做不了（只用来给出明确的指路，不改状态）。"""
+        out = []
+        for r in self.rules:
+            if not r.get("elsewhere") or self.needs_ok(state, r["needs"], code):
+                continue
+            rest = {k: v for k, v in r["needs"].items() if k not in ("room", "room_in")}
+            if self.needs_ok(state, rest, code):
+                out.append(r)
+        return out
+
+    def active_spoilers(self, state: State) -> list[str]:
+        """剧透词按进度生效：玩家已经知道的东西不再算剧透。"""
+        out = []
+        for e in self.level.get("flavor", {}).get("spoilers", []):
+            if isinstance(e, str):
+                out.append(e)
+            elif not (set(e.get("unless_flags", [])) & state.flags or set(e.get("unless_items", [])) & state.items):
+                out.append(e["word"])
+        return out
+
     def hint_stage(self, state: State) -> tuple[int, list[str]]:
         """按当前状态找第一个匹配的提示阶段，返回 (阶段序号, 递进提示)。"""
         for i, h in enumerate(self.level.get("hints", [])):

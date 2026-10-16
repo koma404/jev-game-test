@@ -109,6 +109,8 @@ class RealJev(JevClient):
 STRONG = {
     # 意图
     "look_around": r"周围|四周|环顾|观察|看看|看一看|看一下|这里有什么|什么情况",
+    "ask_hint": r"提示|怎么办|卡关|卡住了|下一步|不知道怎么",
+    "examine_drawer": r"^(?!.*(砸|撬|强行|暴力|\d{4}))(?=.*(抽屉|密码|开锁)).*(查看|看看|检查|打开|怎么开|输入|试试|试一下|开)",
     "check_items": r"背包|物品|线索|身上|携带|带了|我有什么",
     "go_archive": r"档案室|走廊|隔壁",
     "go_hall": r"大厅|返回|回到|回去|上楼|上去",
@@ -167,16 +169,16 @@ class MockJev(JevClient):
         vague = bool(re.search(VAGUE, said))
         first_pos = {}
         for opt in criteria:
-            pat = STRONG.get(opt)
+            pat = STRONG.get(opt[3:] if opt.startswith("at_") else opt)
             m = re.search(pat, said) if pat else None
             if m:
                 first_pos[opt] = m.start()
         rank = {o: i for i, o in enumerate(sorted(first_pos, key=first_pos.get))}
         raw = {}
         for opt in criteria:
-            s = PRIOR.get(opt, 0.05)
+            s = PRIOR.get(opt, 0.01 if opt.startswith('at_') else 0.03)
             if opt in first_pos:
-                s += STRONG_WEIGHT / (1 + RANK_DECAY * rank[opt])
+                s += STRONG_WEIGHT / (1 + RANK_DECAY * rank[opt]) * (0.4 if opt.startswith("at_") else 1)
             elif vague and not first_pos and opt != "none":  # 指代不明只在没有明确动作词时才摊薄概率
                 s += VAGUE_WEIGHT
             raw[opt] = s

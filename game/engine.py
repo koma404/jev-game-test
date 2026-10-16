@@ -71,6 +71,7 @@ class Engine:
         self.on_exchange = on_exchange  # (请求, 响应) 回调，--debug 用
         self.refuse_writer = refuse_writer  # (玩家原话, 场景, 预写文本) -> 文本；可选旁白钩子
         self.hints_used: dict[int, int] = {}
+        self.behavior_uses: dict[str, int] = {}
         self.clues: list[str] = []
         self.turn_no = 0
         self.texts = world.level["texts"]
@@ -105,6 +106,9 @@ class Engine:
                 "instructions": "如果玩家 `player_said` 是在对 `npc` 说话，`npc` 此刻最可能怎样反应？",
                 "criteria": {b["id"]: b["hint_for_jev"] for b in w.behaviors(npc_id)},
             }
+        for r in w.elsewhere_rules(st, code):   # 想做但此地做不了：只用来指路
+            criteria["at_" + r["id"]] = (f"玩家想做的是：{r['hint_for_jev']}。但这件事在玩家当前所在的房间做不了，"
+                                         f"玩家提到的对象或地点在别的房间")
         for r in legal:
             if r.get("confirm"):
                 questions["confirm"] = {
@@ -128,21 +132,27 @@ class Engine:
     def decide_intent(self, text, code, legal, questions, answers) -> Plan:
         ia = answers["intent"]
         by_id = {r["id"]: r for r in legal}
-        probs = {k: v for k, v in ia.get("probabilities", {}).items() if k in by_id or k == NONE}
+        elsewhere = {k[3:]: k for k in questions["intent"]["criteria"] if k.startswith("at_")}
+        away = {k: next(r for r in self.world.rules if r["id"] == rid) for rid, k in elsewhere.items()}
+        probs = {k: v for k, v in ia.get("probabilities", {}).items() if k in by_id or k in away or k == NONE}
         choice = ia.get("choice")
-        if choice not in by_id and choice != NONE:   # 越出合法集合：当作 none 处理
+        if choice not in by_id and choice not in away and choice != NONE:   # 越出合法集合：当作 none 处理
             choice = NONE
         top_p = probs.get(choice, 0.0) if probs else 1.0
         conf = ia.get("confidence")
-        ranked = sorted((k for k in probs if k != NONE), key=lambda k: -probs[k])
+        ranked = sorted((k for k in probs if k in by_id), key=lambda k: -probs[k])
         cands = [by_id[k] for k in ranked if probs[k] >= 0.1][:2]
-        low = top_p < self.threshold or (conf is not None and conf < self.threshold)
+        # 指路没有副作用，选错代价为零，阈值比执行动作低一些
+        thr = self.world.cfg.get("elsewhere_threshold", 0.45) if choice in away else self.threshold
+        low = top_p < thr or (conf is not None and conf < thr)
         plan = Plan(text, code, legal, questions, answers, "act", intent_top=top_p, intent_conf=conf,
                     candidates=cands)
         if low:
             plan.kind = "clarify"
         elif choice == NONE:
             plan.kind = "refuse"
+        elif choice in away:
+            plan.kind, plan.rule = "elsewhere", away[choice]
         else:
             plan.rule = by_id[choice]
         return plan
@@ -193,10 +203,14 @@ class Engine:
             return TurnResult("refuse", text, info=info)
 
         rule = plan.rule
+        if plan.kind == "elsewhere":
+            return TurnResult("elsewhere", rule["elsewhere"], rule_id=rule["id"], info={"top": plan.intent_top})
+        if rule.get("builtin") == "hint":
+            return TurnResult("act", self.hint(), rule_id=rule["id"])
         if rule.get("builtin") == "look":
             return TurnResult("act", w.describe(self.state), rule_id=rule["id"])
         if rule.get("builtin") == "inv":
-            items = ", ".join(sorted(self.state.items)) or "无"
+            items = ", ".join(w.item_name(i) for i in sorted(self.state.items)) or "无"
             clues = "; ".join(self.clues) or "无"
             return TurnResult("act", f"物品: {items}\n线索: {clues}", rule_id=rule["id"])
         if rule.get("confirm"):   # 通关前最后确认：noul 低于阈值则不执行
@@ -236,7 +250,13 @@ class Engine:
             self.clues.append(clue)
         else:
             clue = None
-        return TurnResult("act", picked["text"], rule_id=rule["id"], clue=clue, info={
+        variants = picked.get("texts")
+        text = picked["text"]
+        if variants:   # 同一种反应反复出现时轮换说法，避免玩家以为卡住了
+            n = self.behavior_uses.get(picked["id"], 0)
+            text = variants[n % len(variants)]
+            self.behavior_uses[picked["id"]] = n + 1
+        return TurnResult("act", text, rule_id=rule["id"], clue=clue, info={
             "npc": npc, "attitude_score": att["score"], "attitude": w.cfg["attitude_levels"][level],
             "trust": f"{before}->{trust}", "reaction": picked["id"], "blocked": blocked,
             "reaction_probs": probs})
