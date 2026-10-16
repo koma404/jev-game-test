@@ -16,6 +16,7 @@ from pathlib import Path
 
 from game.jev_client import JevError
 from .judge import Judge, MockClient
+from .logbook import Logbook, latency
 from .trial import Trial
 
 HERE = Path(__file__).parent
@@ -41,34 +42,55 @@ def make_client(kind: str, case: dict):
 class Court:
     """一个浏览器的一场庭审。"""
 
-    def __init__(self, case, judge, log_dir):
+    def __init__(self, case, judge, logbook=None, player="?"):
         self.case = case
         self.judge = judge
         self.trial = Trial(case)
         self.seen = time.time()
         self.cache: dict = {}            # 草稿 -> Judgment；预览过的原句直接说出口时不用再等
         self.say_lock = threading.Lock()
-        self.log_dir = log_dir
+        self.logbook = logbook
+        self.cid = secrets.token_hex(4)  # 日志里的庭号（cookie 本身不进日志）
+        self.player = player
+        self.opened = time.time()
         self.last_preview = 0.0
         self.on_cost = None
+        self.cost = 0.0
+        self.previews = 0
+        self.hints = 0
+        self.ended = False
+        self.lat = {"jev": [], "server": [], "browser": []}   # 本局每次预览的耗时（毫秒）
 
     def judged(self, text: str):
+        """返回 (判断, 是否命中缓存)。"""
         jd = self.cache.get(text)
-        if jd is None:
-            jd = self.judge.judge(text)
-            if self.on_cost:
-                self.on_cost(jd.cost)
-            if len(self.cache) > 50:
-                self.cache.clear()
-            self.cache[text] = jd
-        return jd
+        if jd is not None:
+            return jd, True
+        jd = self.judge.judge(text)
+        self.cost += jd.cost
+        if self.on_cost:
+            self.on_cost(jd.cost)
+        if len(self.cache) > 50:
+            self.cache.clear()
+        self.cache[text] = jd
+        return jd, False
 
-    def log(self, entry):
-        if not self.log_dir:
+    def log(self, event, **fields):
+        if self.logbook:
+            self.logbook.write(event, cid=self.cid, player=self.player, **fields)
+
+    def end(self, verdict: dict, reason: str):
+        """裁决只记一次（主动结束、时间到、说话时时间到，都会走到这里）。"""
+        if self.ended:
             return
-        os.makedirs(self.log_dir, exist_ok=True)
-        with open(os.path.join(self.log_dir, "twelve.jsonl"), "a", encoding="utf-8") as f:
-            f.write(json.dumps({"ts": round(time.time(), 3), **entry}, ensure_ascii=False) + "\n")
+        self.ended = True
+        t = self.trial
+        used = None if t.started_at is None else round(t.cfg["time_limit"] - t.time_left(), 1)
+        self.log("verdict", reason=reason, acquit=verdict["acquit"], votes=verdict["votes"],
+                 leans={k: round(v, 2) for k, v in t.leans.items()},
+                 says=len(t.history), previews=self.previews, hints=self.hints, manip=t.manip_strikes,
+                 used_s=used, cost=round(self.cost, 6),
+                 latency={k: latency(v) for k, v in self.lat.items()})
 
 
 def public_case(case: dict) -> dict:
@@ -145,19 +167,26 @@ class App:
         self.client = make_client(args.jev, self.case)
         self.judge = Judge(self.case, self.client)
         self.log_dir = args.log_dir
+        self.admin_code = getattr(args, "admin_code", "") or os.environ.get("TWELVE_ADMIN_CODE", "")
+        self.logbook = Logbook(args.log_dir, echo=getattr(args, "log_echo", True),
+                               salt=os.environ.get("TWELVE_ACCESS_CODE", "") or "twelve")
         self.max_sessions = args.max_sessions
         self.courts: dict = {}
         self.lock = threading.Lock()
+        self.started = time.time()
         state = os.path.join(args.log_dir, "budget.json") if args.log_dir else None
         if state:
             os.makedirs(args.log_dir, exist_ok=True)
         self.guard = Guard(getattr(args, "access_code", "") or os.environ.get("TWELVE_ACCESS_CODE", ""),
                            getattr(args, "daily_budget", 1.0), getattr(args, "max_courts_per_ip", 6), state)
 
-    def court(self, sid, create=False):
+    def court(self, sid, create=False, player="?"):
         now = time.time()
         with self.lock:
             for k in [k for k, c in self.courts.items() if now - c.seen > IDLE_SECONDS]:
+                if not self.courts[k].ended:
+                    self.courts[k].log("abandon", says=len(self.courts[k].trial.history),
+                                       previews=self.courts[k].previews)
                 del self.courts[k]
             if sid in self.courts and not create:
                 self.courts[sid].seen = now
@@ -167,66 +196,115 @@ class App:
             if sid not in self.courts and len(self.courts) >= self.max_sessions:
                 return sid, None
             sid = sid if sid in self.courts else secrets.token_hex(16)
-            self.courts[sid] = Court(self.case, self.judge, self.log_dir)
+            self.courts[sid] = Court(self.case, self.judge, self.logbook, player)
             self.courts[sid].on_cost = self.guard.charge
             return sid, self.courts[sid]
 
+    # ---- 管理页：/admin?key=管理口令 看统计，/admin/log?key=... 下载日志 ----
+    def admin_ok(self, query: str) -> bool:
+        from urllib.parse import parse_qs
+        given = (parse_qs(query).get("key") or [""])[0]
+        return bool(self.admin_code) and secrets.compare_digest(given, self.admin_code)
+
+    def admin_page(self, query: str) -> str:
+        import html
+        from urllib.parse import parse_qs, quote
+        from .stats import load, report
+        events = load([self.logbook.path]) if self.logbook.path and os.path.exists(self.logbook.path) else []
+        g = self.guard
+        head = (f"进程启动于 {time.strftime('%Y-%m-%d %H:%M', time.localtime(self.started))}；"
+                f"内存中的庭 {len(self.courts)} 个（闲置 2 小时清理）；今日花费 ${g.spent:.4f} / "
+                f"{'$%.2f' % g.budget if g.budget > 0 else '不限'}")
+        key = quote((parse_qs(query).get("key") or [""])[0])
+        return ("<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
+                "<title>十二人 · 运行日志</title><body style='font:14px/1.5 monospace;margin:16px'>"
+                f"<p>{html.escape(head)}</p><p><a href='/admin/log?key={key}'>下载完整日志（jsonl）</a></p>"
+                f"<pre style='white-space:pre-wrap'>{html.escape(report(events, self.case))}</pre>")
+
     # ---- 接口 ----
-    def api(self, path, body, sid, ip="?"):
+    def api(self, path, body, sid, ip="?", ua=""):
+        t0 = time.time()
+        player = self.logbook.player(ip)
         if path == "/api/client_error":   # 浏览器端报错：打印出来，方便排查各家浏览器的问题
             msg = {k: str(body.get(k, ""))[:300] for k in ("msg", "line", "col", "ua")}
-            print(f"[浏览器报错] {msg['msg']} (第 {msg['line']} 行) {msg['ua']}", file=sys.stderr, flush=True)
-            if self.log_dir:
-                os.makedirs(self.log_dir, exist_ok=True)
-                with open(os.path.join(self.log_dir, "client_errors.jsonl"), "a", encoding="utf-8") as f:
-                    f.write(json.dumps({"ts": round(time.time(), 3), **msg}, ensure_ascii=False) + "\n")
+            self.logbook.write("client_error", player=player, **msg)
             return 200, {}, sid
         if path == "/api/new":
+            refused, r = None, None
             if not self.guard.code_ok(body.get("code")):
-                return 401, {"need_code": True, "error": "请输入访问口令。" if not body.get("code") else "口令不对。"}, sid
-            if self.guard.over_budget():
-                return 503, {"error": "今天的体验额度已经用完了，明天再来吧。"}, sid
-            if not self.guard.allow_open(ip):
-                return 429, {"error": "你开庭太频繁了，休息一会儿再来。"}, sid
-            sid, c = self.court(sid, create=True)
-            if c is None:
-                return 503, {"error": "同时开庭的人太多了，请稍后再试。"}, sid
-            return 200, {"case": public_case(self.case), "backend": self.client.name,
-                         "leans": c.trial.leans, "votes": c.trial.votes()}, sid
+                refused = "code" if body.get("code") else None     # 第一次进来没带口令不算被拦
+                r = 401, {"need_code": True, "error": "请输入访问口令。" if not body.get("code") else "口令不对。"}, sid
+            elif self.guard.over_budget():
+                refused, r = "budget", (503, {"error": "今天的体验额度已经用完了，明天再来吧。"}, sid)
+            elif not self.guard.allow_open(ip):
+                refused, r = "per_ip", (429, {"error": "你开庭太频繁了，休息一会儿再来。"}, sid)
+            else:
+                sid, c = self.court(sid, create=True, player=player)
+                if c is None:
+                    refused, r = "full", (503, {"error": "同时开庭的人太多了，请稍后再试。"}, sid)
+                else:
+                    c.log("open", ua=str(ua)[:200], courts=len(self.courts))
+                    r = 200, {"case": public_case(self.case), "backend": self.client.name,
+                              "leans": c.trial.leans, "votes": c.trial.votes()}, sid
+            if refused:
+                self.logbook.write("refused", player=player, reason=refused)
+            return r
         sid, c = self.court(sid)
         if c is None:
             return 409, {"error": "这一庭已经结束或过期，请重新开庭。", "expired": True}, sid
         t = c.trial
+
+        def over():
+            v = t.verdict()
+            c.end(v, "rested" if t.rested else "timeout")
+            return 200, {"over": True, "verdict": v}, sid
+
         if path == "/api/begin":
+            if t.started_at is None:
+                c.log("begin")
             t.begin()
             return 200, {"time_left": t.time_left()}, sid
         if path == "/api/hint":
             if t.over:
-                return 200, {"over": True, "verdict": t.verdict()}, sid
+                return over()
             h = t.hint()
-            c.log({"event": "hint", **h})
+            c.hints += 1
+            c.log("hint", juror=h["juror"], level=t.hinted.get(h["juror"]), time_left=round(t.time_left(), 1))
             return 200, {**h, "time_left": t.time_left()}, sid
         if path == "/api/verdict":
-            t.rested = True
+            if not t.over:
+                t.rested = True
             v = t.verdict()
-            c.log({"event": "verdict", **{k: v[k] for k in ("acquit", "votes")}, "leans": t.leans})
+            c.end(v, "rested" if t.rested else "timeout")
             return 200, {"verdict": v}, sid
         text = str(body.get("text", "")).strip()
         if t.over:
-            return 200, {"over": True, "verdict": t.verdict()}, sid
+            return over()
         if len(text) > self.case["config"]["max_chars"]:
             return 200, {"error": self.case["texts"]["too_long"].format(n=self.case["config"]["max_chars"])}, sid
         if path in ("/api/preview", "/api/say") and self.guard.over_budget():
             return 200, {"error": "今天的体验额度已经用完了。可以结束陈词看看裁决。"}, sid
         if path == "/api/preview":
+            prev = body.get("prev")          # 浏览器测到的上一次预览的总耗时（发出到收到）
+            if isinstance(prev, (int, float)) and 0 < prev < 60000:
+                c.lat["browser"].append(float(prev))
             now = time.time()
             if now - c.last_preview < 0.15:      # 防脚本刷接口；正常打字一次往返远大于这个间隔
                 return 200, {"skip": True}, sid
             c.last_preview = now
             if len(text) < 4:
                 return 200, {"faces": {j["id"]: 0 for j in self.case["jurors"]}, "ms": 0, "text": text}, sid
-            jd = c.judged(text)
-            return 200, {"faces": t.preview(jd), "ms": round(jd.ms), "text": text,
+            jd, cached = c.judged(text)
+            faces = t.preview(jd)
+            srv = (time.time() - t0) * 1000
+            c.previews += 1
+            if not cached:
+                c.lat["jev"].append(jd.ms)
+            c.lat["server"].append(srv)
+            c.log("preview", text=text, cached=cached, jev_ms=None if cached else round(jd.ms),
+                  server_ms=round(srv), browser_prev_ms=prev if isinstance(prev, (int, float)) else None,
+                  up=sum(1 for v in faces.values() if v > 0), down=sum(1 for v in faces.values() if v < 0))
+            return 200, {"faces": faces, "ms": round(jd.ms), "text": text,
                          "time_left": t.time_left()}, sid
         if path == "/api/say":
             if not text:
@@ -235,11 +313,14 @@ class App:
                 return 429, {"error": "上一句还没说完。"}, sid
             try:
                 t.begin()
-                jd = c.judged(text)
+                jd, cached = c.judged(text)
                 if t.over:   # 判断期间时间到了：这句不算
-                    return 200, {"over": True, "verdict": t.verdict()}, sid
+                    return over()
                 sp = t.speak(text, jd)
-                c.log({"event": "say", **t.history[-1], "ms": round(jd.ms)})
+                h = dict(t.history[-1], deltas={k: round(v, 3) for k, v in t.history[-1]["deltas"].items()})
+                c.log("say", **h, votes=sp.votes, cached=cached,
+                      jev_ms=None if cached else round(jd.ms), server_ms=round((time.time() - t0) * 1000),
+                      leans={k: round(v, 2) for k, v in t.leans.items()}, time_left=round(t.time_left(), 1))
                 return 200, {"faces": t.faces(sp.deltas), "reactions": sp.reactions, "notes": sp.notes,
                              "votes": sp.votes, "need": self.case["config"]["win_votes"], "leans": t.leans, "ms": round(jd.ms),
                              "time_left": t.time_left()}, sid
@@ -253,6 +334,7 @@ def make_handler(app: App):
 
     class H(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"   # 浏览器到这里也复用连接
+        app = None   # 下面赋值，测试里用来拿到 App
 
         def _ip(self):
             peer = self.client_address[0]
@@ -287,8 +369,24 @@ def make_handler(app: App):
             self.wfile.write(body)
 
         def do_GET(self):
-            if self.path.split("?", 1)[0] in ("/", "/index.html"):   # 分享链接会带 ?code=口令
+            path, _, query = self.path.partition("?")
+            if path in ("/", "/index.html"):   # 分享链接会带 ?code=口令
                 self._send(200, page, "text/html; charset=utf-8")
+            elif path in ("/admin", "/admin/log") and app.admin_ok(query):
+                if path == "/admin":
+                    self._send(200, app.admin_page(query).encode("utf-8"), "text/html; charset=utf-8")
+                else:
+                    data = b""
+                    if app.logbook.path and os.path.exists(app.logbook.path):
+                        with open(app.logbook.path, "rb") as f:
+                            data = f.read()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+                    self.send_header("Content-Disposition", 'attachment; filename="twelve-%s.jsonl"' % time.strftime("%Y%m%d-%H%M"))
+                    self.send_header("Content-Length", str(len(data)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    self.wfile.write(data)
             else:
                 self._send(404, b"not found", "text/plain")
 
@@ -302,8 +400,9 @@ def make_handler(app: App):
             except (ValueError, UnicodeDecodeError):
                 return self._send(400, b'{"error":"bad request"}', "application/json")
             try:
-                code, obj, sid = app.api(self.path, body, self._sid(), self._ip())
+                code, obj, sid = app.api(self.path, body, self._sid(), self._ip(), self.headers.get("User-Agent", ""))
             except JevError as e:
+                app.logbook.write("jev_error", path=self.path, error=str(e)[:300])
                 code, obj, sid = 502, {"error": f"Jev 暂时没有响应：{e}"}, self._sid()
             self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"),
                        "application/json; charset=utf-8", sid)
@@ -313,6 +412,7 @@ def make_handler(app: App):
                 return
             sys.stderr.write("%s %s\n" % (self.address_string(), fmt % a))
 
+    H.app = app
     return H
 
 
@@ -331,6 +431,7 @@ def main(argv=None) -> int:
     ap.add_argument("--daily-budget", type=float, default=1.0, help="每天最多花多少美元调用 Jev，超过当天停用（0 = 不限）")
     ap.add_argument("--max-courts-per-ip", type=int, default=6, help="同一 IP 每小时最多开几庭（0 = 不限）")
     ap.add_argument("--log-dir", default="twelve/logs")
+    ap.add_argument("--admin-code", default="", help="管理口令，开启 /admin?key=口令（统计与日志下载）；也可用环境变量 TWELVE_ADMIN_CODE")
     args = ap.parse_args(argv)
     try:
         app = App(args)
@@ -348,6 +449,9 @@ def main(argv=None) -> int:
     print(f"  访问口令：{'已设置' if g.code else '未设置（挂公网前务必用 --access-code 设置）'}"
           f"；每日花费上限：{'$%.2f（今日已用 $%.4f）' % (g.budget, g.spent) if g.budget > 0 else '不限'}"
           f"；每 IP 每小时最多开庭：{g.per_ip or '不限'}")
+    if app.admin_code:
+        print(f"  运行日志：http://127.0.0.1:{args.port}/admin?key=管理口令（统计、下载日志）")
+    print(f"  日志文件：{app.logbook.path or '（不写文件）'}；除打字预览外每个事件也打印成一行 LOG")
     print("  按 Ctrl+C 停止")
     os.environ.setdefault("TWELVE_QUIET", "1")
     try:

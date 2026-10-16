@@ -51,6 +51,7 @@ if [ "$MODE" != "--update" ] || [ ! -f "$ENV_FILE" ]; then
   [ -n "$KEY" ] || die "key 不能为空"
   read -r -p "访问口令（玩家要输入，或放在链接 ?code= 里）: " CODE
   [ -n "$CODE" ] || die "访问口令不能为空：挂在公网上不设口令，谁都能消耗你的额度"
+  read -r -p "管理口令（打开 /admin?key=管理口令 看统计、下载日志；留空则不开）: " ADMIN
   read -r -p "每日 Jev 花费上限，美元 [0.5]: " BUDGET; BUDGET="${BUDGET:-0.5}"
   read -r -p "端口 [80]: " PORT; PORT="${PORT:-80}"
   mkdir -p "$ENV_DIR"
@@ -61,6 +62,7 @@ TYPESAFE_BASE_URL=https://openrouter.ai/api/v1/systemone
 TYPESAFE_MODEL=jev-latest
 TYPESAFE_PROXY=direct
 TWELVE_ACCESS_CODE=$CODE
+TWELVE_ADMIN_CODE=$ADMIN
 DAILY_BUDGET=$BUDGET
 PORT=$PORT
 TWELVE_QUIET=1
@@ -122,6 +124,7 @@ cat <<EOF
     http://$IP$SUFFIX/?code=$TWELVE_ACCESS_CODE
 
 常用命令：
+    http://$IP$SUFFIX/admin?key=管理口令  # 运行统计、下载日志（设了管理口令才有）
     systemctl status twelve              # 看状态
     journalctl -u twelve -f              # 看实时日志（Ctrl+C 退出）
     sudo bash deploy/install.sh --update # 拉取新代码后更新

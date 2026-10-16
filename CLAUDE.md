@@ -66,7 +66,9 @@ twelve/
   judge.py           组题、解析 Jev 返回为 Judgment；MockClient 为离线关键词版
   trial.py           庭审规则：倾向值、单句效果、预览、计时、裁决（纯代码，无 Jev）
   link.py            复用 HTTPS 连接的 Jev 客户端（只在第一次握手），网络远时对延迟影响很大
-  server.py          网页服务（标准库），每个浏览器一庭；预览 / 说出口 / 裁决接口
+  server.py          网页服务（标准库），每个浏览器一庭；预览 / 说出口 / 裁决接口；/admin 管理页
+  logbook.py         运行日志：每个事件一行 JSON 写文件，除打字预览外同时打印 `LOG {...}` 到标准输出
+  stats.py           日志汇总报告（/admin 页面和命令行共用）
   page.html          界面：12 张脸、计时、记录、案卷、提示；手机上计时+脸+输入框固定在顶部（键盘弹出也看得见），脸缩成 6×2 小头像（点头像看人设），最新记录在最上，案卷从底部弹出；ES5；每 50ms 看一眼输入框，变化即发（输入法拼音中不发，事件卡住 1.5s 自动解除），同时只保留一个在途预览
   tests/             单元测试、hooks.jsonl（Jev 判断评测集）、eval_hooks.py
 game/                v0.1《停电的档案馆》，仍可运行；jev_client.py 被 twelve 复用
@@ -80,11 +82,26 @@ python -m twelve.server --jev mock          # 离线模拟（关键词版，不�
 python -m twelve.tests.eval_hooks --jev real   # Jev 判断准确率
 python -m unittest discover -s twelve/tests -t .
 python -m game.netcheck                     # 网络测速，含"每次新建连接"与"连接复用"的对比
+python -m twelve.stats [日志文件 ...]          # 运行统计；默认读 twelve/logs/twelve.jsonl，也接受从 Render 日志页复制的文本
 ```
 
 Windows：双击 `play_twelve.bat`（真实 Jev，读同目录 `key.txt`，沿用 `TYPESAFE_PROXY` 等设置）或 `play_twelve_mock.bat`。
 Jev 的接入方式（OpenRouter 端点、key、代理）与 v0.1 相同，见 `game/DESIGN.md` §10。
-日志写到 `twelve/logs/twelve.jsonl`（每句话的判断与数值变化、每局裁决），用来调参。
+**运行日志**（内测调参、查延迟用）写到 `<log-dir>/twelve.jsonl`：
+
+| 事件 | 内容 |
+|---|---|
+| `open` / `refused` | 开庭（浏览器 UA）/ 被拦下的原因（口令错、额度用完、开庭太频繁、人满） |
+| `begin` / `hint` / `abandon` | 开始陈词 / 提示（给了谁、第几层）/ 闲置 2 小时没出裁决 |
+| `preview` | 每次打字预览：草稿、Jev 往返、服务端耗时、浏览器测到的上一次预览总耗时、点头/皱眉人数、是否命中缓存 |
+| `say` | 说出口：12 人的 hit/dislike 概率、质量、论点、操纵概率、数值变化、倾向、票数、剩余时间 |
+| `verdict` | 裁决（主动结束 / 时间到，每局只记一次）：每人最终倾向、句数、预览数、提示数、用时、花费、本局延迟中位 / 90% |
+| `jev_error` / `client_error` | Jev 出错 / 浏览器脚本报错 |
+
+- 每条带庭号 `cid` 和玩家 `player`（IP 加盐哈希，不存原始 IP；cookie 不进日志）。
+- **延迟三段**：浏览器总耗时 − 服务端耗时 ≈ 玩家到服务器的网络往返；服务端耗时 − Jev 往返 ≈ 服务器自身开销。
+- **管理页**：设了管理口令（`--admin-code` / `TWELVE_ADMIN_CODE`）后，`/admin?key=管理口令` 看汇总报告（胜率、票数分布、延迟、每位陪审员的翻转率 / 戳中率 / 踩雷率、最近的句子、报错），`/admin/log?key=...` 下载完整日志。没设就是 404。
+- Render 磁盘不保留：**每次休眠唤醒、重启、往分支 push 重新部署，日志文件都会清空**。push 前先到 `/admin` 下载；平台日志页里也留着除预览外的所有 `LOG` 行，复制下来交给 `twelve.stats` 也能统计（没有预览明细，延迟用每局裁决里的统计）。
 
 ## 6. 约束（沿用 v0.1 的原则）
 
@@ -111,11 +128,12 @@ Jev 的接入方式（OpenRouter 端点、key、代理）与 v0.1 相同，见 `
 每句说完显示"还差几票"；闲置 20 秒提醒；「提示」由代码挑一位还倾向有罪、离翻转最近的陪审员，
 第一次揭示 TA 在意什么，第二次揭示 TA 的雷区，每次扣 `hint_cost`（10）秒。
 
+- **Render（新加坡）实测**：Jev 往返约 800 ms，浏览器总耗时约 1500 ms——中间约 700 ms 是玩家到 Render 的网络往返和平台负载均衡，内测日志会把三段分开记录。
 - **延迟拆解**：停手到脸变化 = 一次 Jev 往返 + 约 50 ms。沙箱 0.30–0.35 s；Win7 机器预计 0.45–0.75 s（往返 0.4–0.7 s）。原先固定的 300 ms 停顿等待已去掉（`preview_debounce_ms: 0`）。
 
 - **浏览器兼容**：用 Chromium 109.0.5414（Win7 上最后一版 Chrome 的同版本内核）实测：开庭、打字、预览、提示、裁决都正常。
   有同事反馈"Chrome 109 输入框点不出光标"未能复现；为此输入框改为始终可用（未开庭时点它会弹出开庭说明），
-  开庭失败会明说原因并给"重新开庭"，页面脚本出错时显示红条并上报（服务窗口打印 `[浏览器报错]`，日志 `twelve/logs/client_errors.jsonl`）。
+  开庭失败会明说原因并给"重新开庭"，页面脚本出错时显示红条并上报（运行日志里的 `client_error`）。
 
 ## 8. 本地自部署模型（可选，未实测）
 
@@ -152,7 +170,7 @@ Jev 不开源，只能用托管 API。社区有接口兼容的开源 System One 
 
 **B. Render 免费版（当前在用：地址固定、电脑可关机、不用实名）**
 1. 用 GitHub 登录 Render → New → Blueprint → 选本仓库和分支，读取根目录 `render.yaml`。
-2. 在 Render 后台填 `TYPESAFE_API_KEY`、`TWELVE_ACCESS_CODE`。
+2. 在 Render 后台填 `TYPESAFE_API_KEY`、`TWELVE_ACCESS_CODE`、`TWELVE_ADMIN_CODE`（管理口令，看运行日志用）。
 - 闲置 15 分钟休眠，下次访问约 1 分钟唤醒；每月 750 小时免费；磁盘不保留——**每日花费记录在休眠/重启后清零**，所以 OpenRouter 的额度上限更重要。
 - 在平台负载均衡后面，`TWELVE_TRUST_PROXY=1` 让服务端从 `X-Forwarded-For` 取真实 IP；端口读环境变量 `PORT`。
 - 已部署成功。Render 跟踪所选分支，往分支 push 后自动重新部署。

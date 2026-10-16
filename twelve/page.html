@@ -139,7 +139,7 @@ window.onerror=function(msg, src, line, col){
 (function(){
   var $=function(id){return document.getElementById(id);};
   var C=null, jurors=[], leans={}, started=false, over=false, deadline=0, timerId=0;
-  var composing=false, inflight=false, pending=false, lastSent=null, debounce=300, dTimer=0, seq=0;
+  var composing=false, inflight=false, pending=false, lastSent=null, debounce=300, dTimer=0, seq=0; var lastTotal=0;   // 上一次预览的总耗时，随下一次预览报给服务端记日志
 
   function post(path, body, cb){
     var x=new XMLHttpRequest(); x.open('POST', path, true); x.setRequestHeader('Content-Type','application/json');
@@ -199,12 +199,13 @@ window.onerror=function(msg, src, line, col){
     if(inflight){ pending=true; return; }
     inflight=true; lastSent=text; var my=++seq, t0=new Date().getTime();
     status('陪审员在听…');
-    post('/api/preview', {text:text}, function(s, r){
-      inflight=false;
+    post('/api/preview', {text:text, prev:lastTotal}, function(s, r){
+      inflight=false; lastTotal=0;
       if(r.skip){ lastSent=null; if(pending){ pending=false; } return; }   // 服务端限速：下一轮再发
       if(s!==200 || r.error){ status('预览出错：'+(r.error||('HTTP '+s)), true); lastSent=null; return; }
       if(s===200 && r.faces && my===seq) setFaces(r.faces);   // 落后一两个词没关系，读空气要的就是边打边看
-      status(r.ms ? 'Jev '+r.ms+' ms · 总 '+(new Date().getTime()-t0)+' ms' : (r.text && r.text.length>=4 ? '离线模拟' : '（太短，不预览）'));
+      if(r.ms) lastTotal=new Date().getTime()-t0;
+      status(r.ms ? 'Jev '+r.ms+' ms · 总 '+lastTotal+' ms' : (r.text && r.text.length>=4 ? '离线模拟' : '（太短，不预览）'));
       if(r.over) return finish(r.verdict);
       if(pending){ pending=false; preview(); }
     });

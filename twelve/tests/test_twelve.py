@@ -114,7 +114,7 @@ class JudgeTests(unittest.TestCase):
 class ServerTests(unittest.TestCase):
     def setUp(self):
         import argparse
-        args = argparse.Namespace(case="case1", jev="mock", log_dir="", max_sessions=5)
+        args = argparse.Namespace(case="case1", jev="mock", log_dir="", max_sessions=5, log_echo=False)
         self.srv = HTTPServer(("127.0.0.1", 0), make_handler(App(args)))
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
         self.base = f"http://127.0.0.1:{self.srv.server_port}"
@@ -176,6 +176,130 @@ class ServerTests(unittest.TestCase):
         s, r = self.call("/api/say", {"text": "还有一句"})
         self.assertTrue(r.get("over"))
 
+
+
+class LogTests(unittest.TestCase):
+    """运行日志：每局的事件都记下来，/admin 能看统计、下载日志，没有管理口令时打不开。"""
+
+    def setUp(self):
+        import argparse, tempfile
+        self.dir = tempfile.mkdtemp()
+        args = argparse.Namespace(case="case1", jev="mock", log_dir=self.dir, max_sessions=5,
+                                  admin_code="adm", log_echo=False)
+        self.srv = HTTPServer(("127.0.0.1", 0), make_handler(App(args)))
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        self.base = f"http://127.0.0.1:{self.srv.server_port}"
+        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        self.cookie = None
+
+    def tearDown(self):
+        import shutil
+        self.srv.shutdown()
+        self.srv.server_close()
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def call(self, path, body=None):
+        h = {"Content-Type": "application/json", "User-Agent": "TestBrowser/1.0"}
+        if self.cookie:
+            h["Cookie"] = self.cookie
+        req = urllib.request.Request(self.base + path, data=json.dumps(body or {}).encode(), method="POST", headers=h)
+        with self.opener.open(req) as r:
+            if r.headers.get("Set-Cookie"):
+                self.cookie = r.headers["Set-Cookie"].split(";")[0]
+            return json.loads(r.read())
+
+    def get(self, path):
+        try:
+            with self.opener.open(self.base + path) as r:
+                return r.status, r.read().decode("utf-8")
+        except urllib.error.HTTPError as e:
+            return e.code, ""
+
+    def events(self):
+        from twelve.stats import load
+        import os
+        return load([os.path.join(self.dir, "twelve.jsonl")])
+
+    def test_a_game_is_logged_end_to_end(self):
+        import time
+        self.call("/api/new")
+        self.call("/api/begin")
+        self.call("/api/preview", {"text": "张伟的女儿小雨还在住院", "prev": 0})
+        time.sleep(0.2)
+        self.call("/api/preview", {"text": "张伟的女儿小雨还在住院，他是个父亲", "prev": 640})
+        self.call("/api/say", {"text": "张伟的女儿小雨还在住院，他是个父亲"})
+        self.call("/api/hint")
+        self.call("/api/verdict")
+        self.call("/api/verdict")                       # 重复请求裁决只记一次
+        ev = self.events()
+        kinds = [e["event"] for e in ev]
+        for k in ("open", "begin", "preview", "say", "hint", "verdict"):
+            self.assertIn(k, kinds)
+        self.assertEqual(kinds.count("verdict"), 1)
+        self.assertEqual(len({e["cid"] for e in ev}), 1)
+        op = ev[kinds.index("open")]
+        self.assertEqual(op["ua"], "TestBrowser/1.0")
+        say = ev[kinds.index("say")]
+        self.assertTrue(say["cached"])                  # 预览过的原句直接说出口，复用判断
+        self.assertIn("server_ms", say)
+        v = ev[kinds.index("verdict")]
+        self.assertEqual((v["says"], v["previews"], v["hints"], v["reason"]), (1, 2, 1, "rested"))
+        self.assertEqual(v["latency"]["browser"]["p50"], 640)
+        self.assertNotIn(self.cookie.split("=", 1)[1], json.dumps(ev))   # cookie 不进日志
+
+    def test_timeout_during_say_is_logged_as_verdict(self):
+        self.call("/api/new")
+        self.call("/api/begin")
+        app_court = None
+        # 直接把这一庭的时钟拨到结束
+        for c in self.srv.RequestHandlerClass.app.courts.values():
+            app_court = c
+        app_court.trial.started_at -= 10_000
+        r = self.call("/api/say", {"text": "他在公司守了八年夜"})
+        self.assertTrue(r.get("over"))
+        v = [e for e in self.events() if e["event"] == "verdict"]
+        self.assertEqual(v[0]["reason"], "timeout")
+
+    def test_wrong_code_is_logged_as_refused(self):
+        self.srv.RequestHandlerClass.app.guard.code = "abc"
+        try:
+            self.call("/api/new", {"code": "nope"})
+        except urllib.error.HTTPError:
+            pass
+        self.assertEqual([e["reason"] for e in self.events() if e["event"] == "refused"], ["code"])
+
+    def test_admin_needs_key(self):
+        self.assertEqual(self.get("/admin")[0], 404)
+        self.assertEqual(self.get("/admin?key=wrong")[0], 404)
+        self.assertEqual(self.get("/admin/log?key=wrong")[0], 404)
+        self.call("/api/new")
+        self.call("/api/begin")
+        self.call("/api/say", {"text": "凌晨的监控里那个人的脸看不清"})
+        self.call("/api/verdict")
+        s, body = self.get("/admin?key=adm")
+        self.assertEqual(s, 200)
+        self.assertIn("胜负", body)
+        self.assertIn("陪审员", body)
+        s, body = self.get("/admin/log?key=adm")
+        self.assertIn('"event": "verdict"', body)
+
+    def test_stats_reads_copied_platform_logs(self):
+        import os, tempfile
+        from twelve.stats import load, report
+        line = json.dumps({"ts": 1.0, "t": "2026-10-16 10:00:00", "event": "verdict", "cid": "x", "acquit": True,
+                           "votes": 8, "leans": {"han": 0.5}, "says": 5, "previews": 80, "hints": 1,
+                           "reason": "rested", "latency": {"jev": {"n": 3, "p50": 800, "p90": 900, "max": 950}}},
+                          ensure_ascii=False)
+        p = os.path.join(self.dir, "render.txt")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("Oct 16 10:00:00 AM  LOG " + line + "\n")
+            f.write("==> Your service is live\n")
+            f.write("Oct 16 10:00:00 AM  LOG " + line + "\n")   # 重复的行去重
+        ev = load([p])
+        self.assertEqual(len(ev), 1)
+        text = report(ev)
+        self.assertIn("胜诉 1/1", text)
+        self.assertIn("800", text)
 
 
 class GuardTests(unittest.TestCase):

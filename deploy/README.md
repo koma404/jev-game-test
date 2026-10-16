@@ -33,6 +33,7 @@ bash deploy/install.sh
 |---|---|
 | OpenRouter key | 你的 key（输入时不显示，正常） |
 | 访问口令 | 自己想一个，发给朋友用 |
+| 管理口令 | 自己留着用，打开 `http://IP/admin?key=管理口令` 看运行统计、下载日志；留空则不开 |
 | 每日 Jev 花费上限 | 直接回车 = 0.5 美元/天 |
 | 端口 | 直接回车 = 80（链接里就不用写端口） |
 
@@ -54,6 +55,7 @@ ssh root@服务器IP "cd /root/jev-game-test && bash deploy/install.sh --update"
 ```
 systemctl status twelve                        # 服务状态
 journalctl -u twelve -f                        # 实时日志，Ctrl+C 退出
+cd /opt/twelve && python3 -m twelve.stats /var/lib/twelve/twelve.jsonl   # 运行统计
 nano /etc/twelve/env && systemctl restart twelve   # 改 key / 口令 / 每日上限
 systemctl stop twelve                          # 暂停对外服务
 ```
