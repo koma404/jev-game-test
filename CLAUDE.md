@@ -91,7 +91,11 @@ Jev 的接入方式（OpenRouter 端点、key、代理）与 v0.1 相同，见 `
 - Jev 不生成文字；陪审员的反应、裁决台词都是预写的。
 - key 不进仓库；每次请求的 state 只放案情摘要和这一句话。
 - Jev 的弱项是算术、计数、多跳推理：这些全在代码里。也不要让它跨回合追踪对话。
-- 没有登录：局域网内谁都能打开并消耗 OpenRouter 额度。
+- 挂到公网时三道闸（`server.py` 的 `Guard`）：访问口令（`--access-code` / `TWELVE_ACCESS_CODE`，分享链接可带 `?code=`）、
+  每日花费上限（`--daily-budget` 美元，按 Jev 返回的 `usage.cost` 累计，存 `logs/budget.json`，重启不清零）、
+  每 IP 每小时开庭数（`--max-courts-per-ip`；经内网穿透进来时取 `X-Forwarded-For`）。预览每庭最快 0.15 s 一次。
+  再加一道最硬的：在 OpenRouter 后台给这个 key 设额度上限。Windows 上用 `play_twelve_public.bat`。
+- 成本实测：每次判断约 2,600 输入 token、$0.00011；一局 100–600 次预览 ≈ $0.01–0.07（¥0.1–0.5）。
 
 ## 7. 实测记录
 

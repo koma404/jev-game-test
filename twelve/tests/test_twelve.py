@@ -138,6 +138,11 @@ class ServerTests(unittest.TestCase):
         except urllib.error.HTTPError as e:
             return e.code, json.loads(e.read())
 
+    def test_page_served_with_query_string(self):
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(self.base + "/?code=abc") as r:
+            self.assertIn(b"<title>", r.read())
+
     def test_full_flow(self):
         s, r = self.call("/api/new")
         self.assertEqual(s, 200)
@@ -153,6 +158,36 @@ class ServerTests(unittest.TestCase):
         self.assertIn("verdict", r)
         s, r = self.call("/api/say", {"text": "还有一句"})
         self.assertTrue(r.get("over"))
+
+
+
+class GuardTests(unittest.TestCase):
+    def app(self, **kw):
+        import argparse
+        a = dict(case="case1", jev="mock", log_dir="", max_sessions=50, access_code="", daily_budget=1.0, max_courts_per_ip=6)
+        a.update(kw)
+        return App(argparse.Namespace(**a))
+
+    def test_access_code(self):
+        app = self.app(access_code="lawyer")
+        self.assertEqual(app.api("/api/new", {}, None, "1.2.3.4")[0], 401)
+        self.assertEqual(app.api("/api/new", {"code": "wrong"}, None, "1.2.3.4")[0], 401)
+        self.assertEqual(app.api("/api/new", {"code": "lawyer"}, None, "1.2.3.4")[0], 200)
+
+    def test_daily_budget_stops_new_courts_and_previews(self):
+        app = self.app(daily_budget=0.001)
+        code, _, sid = app.api("/api/new", {}, None, "1.2.3.4")
+        app.api("/api/begin", {}, sid, "1.2.3.4")
+        app.guard.charge(0.002)
+        self.assertEqual(app.api("/api/new", {}, None, "5.6.7.8")[0], 503)
+        _, r, _ = app.api("/api/preview", {"text": "钥匙有三把没有登记"}, sid, "1.2.3.4")
+        self.assertIn("额度", r["error"])
+
+    def test_per_ip_limit(self):
+        app = self.app(max_courts_per_ip=2)
+        codes = [app.api("/api/new", {}, None, "9.9.9.9")[0] for _ in range(3)]
+        self.assertEqual(codes, [200, 200, 429])
+        self.assertEqual(app.api("/api/new", {}, None, "8.8.8.8")[0], 200)
 
 
 if __name__ == "__main__":

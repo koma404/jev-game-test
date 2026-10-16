@@ -24,6 +24,7 @@ class Judgment:
     argument_p: float = 0.0
     manip: float = 0.0
     ms: float = 0.0                               # 这次请求的往返耗时
+    cost: float = 0.0                             # 这次请求花了多少美元（OpenRouter 返回；没有就按 token 估）
 
 
 def build_questions(case: dict) -> dict:
@@ -75,7 +76,11 @@ class Judge:
         t0 = time.time()
         resp = self.client.ask(state_for(self.case, text), self.questions)
         ms = getattr(self.client, "last_ms", 0.0) or (time.time() - t0) * 1000
-        return parse(self.case, resp["answers"], ms)
+        jd = parse(self.case, resp["answers"], ms)
+        u = resp.get("usage") or {}
+        # 输出免费；没有 cost 字段时按输入 $0.042 / 百万 token 估算
+        jd.cost = float(u.get("cost") or u.get("input_tokens", 0) * 0.042e-6)
+        return jd
 
 
 class MockClient:

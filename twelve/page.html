@@ -161,6 +161,7 @@ window.onerror=function(msg, src, line, col){
     status('陪审员在听…');
     post('/api/preview', {text:text}, function(s, r){
       inflight=false;
+      if(r.skip){ lastSent=null; if(pending){ pending=false; } return; }   // 服务端限速：下一轮再发
       if(s!==200 || r.error){ status('预览出错：'+(r.error||('HTTP '+s)), true); lastSent=null; return; }
       if(s===200 && r.faces && my===seq) setFaces(r.faces);   // 落后一两个词没关系，读空气要的就是边打边看
       status(r.ms ? 'Jev 往返 '+r.ms+' ms' : '（太短，不预览）');
@@ -251,7 +252,16 @@ window.onerror=function(msg, src, line, col){
   });
   $('go').onclick=say; $('hint').onclick=hint; $('rest').onclick=function(){ if(confirm('确定结束陈词吗？')) rest(); };
 
-  post('/api/new', {}, function(s, r){
+  // 访问口令：可以直接放在链接里分享（?code=xxx），否则弹框输入
+  var code=(location.search.match(/[?&]code=([^&]+)/)||[])[1]; code=code?decodeURIComponent(code):'';
+  function askCode(msg){
+    $('box').innerHTML='<h2>十二人</h2><p id="cmsg"></p><p><input id="code" style="font:inherit;padding:8px 10px;border:1px solid #ccc;border-radius:6px"> <button id="cgo">进入</button></p>';
+    $('cmsg').textContent=msg; $('overlay').style.display='flex';
+    var go=function(){ code=$('code').value.replace(/^\s+|\s+$/g,''); open(); };
+    $('cgo').onclick=go; $('code').onkeydown=function(e){ if(e.keyCode===13) go(); }; $('code').focus();
+  }
+  function open(){ post('/api/new', {code:code}, function(s, r){
+    if(s===401){ return askCode(r.error||'请输入访问口令。'); }
     if(s!==200){ $('box').innerHTML='<h2>无法开庭</h2><p></p>'; $('box').getElementsByTagName('p')[0].textContent=r.error||('错误 '+s); $('overlay').style.display='flex'; return; }
     C=r.case; jurors=C.jurors; debounce=(C.debounce==null?120:C.debounce);
     $('title').textContent=C.title; $('need').textContent=C.win_votes; inp.setAttribute('maxlength', C.max_chars);
@@ -265,7 +275,8 @@ window.onerror=function(msg, src, line, col){
     $('box').innerHTML='<h2>'+esc(C.title)+'</h2><p id="brief"></p><ol><li>右边的<b>案卷</b>里有你能用的事实。</li><li>在下方输入一句辩护的话。<b>停一下</b>，12 位陪审员的脸会变：<span style="color:#2f8f5b">点头</span>是被打动，<span style="color:#c0392b">皱眉</span>是反感。</li><li>满意了按<b>回车</b>，这句话才算说出口。脸下面的条是他们的倾向，<span style="color:#2f8f5b">绿色</span>就是倾向无罪。</li><li>每个人在意的东西不一样：同一句话，有人点头，有人皱眉。卡住了就点<b>提示</b>（扣 10 秒）。</li></ol><p class="note">时间一开始就不会停。别想着下命令——陪审员不吃这一套。</p><p><button id="start">开始陈词</button></p>';
     $('brief').textContent=C.brief; $('overlay').style.display='flex'; $('start').onclick=begin;
     if(r.backend==='mock') $('ms').textContent='（离线模拟模式）';
-  });
+  }); }
+  open();
 })();
 </script>
 </body>

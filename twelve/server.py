@@ -49,11 +49,15 @@ class Court:
         self.cache: dict = {}            # 草稿 -> Judgment；预览过的原句直接说出口时不用再等
         self.say_lock = threading.Lock()
         self.log_dir = log_dir
+        self.last_preview = 0.0
+        self.on_cost = None
 
     def judged(self, text: str):
         jd = self.cache.get(text)
         if jd is None:
             jd = self.judge.judge(text)
+            if self.on_cost:
+                self.on_cost(jd.cost)
             if len(self.cache) > 50:
                 self.cache.clear()
             self.cache[text] = jd
@@ -76,6 +80,63 @@ def public_case(case: dict) -> dict:
                        for j in case["jurors"]]}
 
 
+class Guard:
+    """挂到公网时的三道闸：访问口令、每日花费上限、按 IP 限制开庭次数。"""
+
+    def __init__(self, access_code="", daily_budget=1.0, per_ip_hourly=6, state_file=None):
+        self.code = access_code or ""
+        self.budget = float(daily_budget)
+        self.per_ip = int(per_ip_hourly)
+        self.state_file = state_file
+        self.lock = threading.Lock()
+        self.day, self.spent = time.strftime("%Y-%m-%d"), 0.0
+        self.opens: dict = {}
+        if state_file and os.path.exists(state_file):   # 重启不清零
+            try:
+                d = json.load(open(state_file, encoding="utf-8"))
+                if d.get("day") == self.day:
+                    self.spent = float(d.get("spent", 0))
+            except (OSError, ValueError):
+                pass
+
+    def _roll(self):
+        today = time.strftime("%Y-%m-%d")
+        if today != self.day:
+            self.day, self.spent = today, 0.0
+
+    def over_budget(self) -> bool:
+        with self.lock:
+            self._roll()
+            return self.budget > 0 and self.spent >= self.budget
+
+    def charge(self, usd: float):
+        if not usd:
+            return
+        with self.lock:
+            self._roll()
+            self.spent += usd
+            if self.state_file:
+                try:
+                    with open(self.state_file, "w", encoding="utf-8") as f:
+                        json.dump({"day": self.day, "spent": round(self.spent, 6)}, f)
+                except OSError:
+                    pass
+
+    def code_ok(self, given) -> bool:
+        return not self.code or secrets.compare_digest(str(given or ""), self.code)
+
+    def allow_open(self, ip: str) -> bool:
+        now = time.time()
+        with self.lock:
+            hits = [t for t in self.opens.get(ip, []) if now - t < 3600]
+            if self.per_ip and len(hits) >= self.per_ip:
+                self.opens[ip] = hits
+                return False
+            hits.append(now)
+            self.opens[ip] = hits
+            return True
+
+
 class App:
     def __init__(self, args):
         self.case = load_case(args.case)
@@ -85,6 +146,11 @@ class App:
         self.max_sessions = args.max_sessions
         self.courts: dict = {}
         self.lock = threading.Lock()
+        state = os.path.join(args.log_dir, "budget.json") if args.log_dir else None
+        if state:
+            os.makedirs(args.log_dir, exist_ok=True)
+        self.guard = Guard(getattr(args, "access_code", "") or os.environ.get("TWELVE_ACCESS_CODE", ""),
+                           getattr(args, "daily_budget", 1.0), getattr(args, "max_courts_per_ip", 6), state)
 
     def court(self, sid, create=False):
         now = time.time()
@@ -100,10 +166,11 @@ class App:
                 return sid, None
             sid = sid if sid in self.courts else secrets.token_hex(16)
             self.courts[sid] = Court(self.case, self.judge, self.log_dir)
+            self.courts[sid].on_cost = self.guard.charge
             return sid, self.courts[sid]
 
     # ---- 接口 ----
-    def api(self, path, body, sid):
+    def api(self, path, body, sid, ip="?"):
         if path == "/api/client_error":   # 浏览器端报错：打印出来，方便排查各家浏览器的问题
             msg = {k: str(body.get(k, ""))[:300] for k in ("msg", "line", "col", "ua")}
             print(f"[浏览器报错] {msg['msg']} (第 {msg['line']} 行) {msg['ua']}", file=sys.stderr, flush=True)
@@ -113,6 +180,12 @@ class App:
                     f.write(json.dumps({"ts": round(time.time(), 3), **msg}, ensure_ascii=False) + "\n")
             return 200, {}, sid
         if path == "/api/new":
+            if not self.guard.code_ok(body.get("code")):
+                return 401, {"need_code": True, "error": "请输入访问口令。" if not body.get("code") else "口令不对。"}, sid
+            if self.guard.over_budget():
+                return 503, {"error": "今天的体验额度已经用完了，明天再来吧。"}, sid
+            if not self.guard.allow_open(ip):
+                return 429, {"error": "你开庭太频繁了，休息一会儿再来。"}, sid
             sid, c = self.court(sid, create=True)
             if c is None:
                 return 503, {"error": "同时开庭的人太多了，请稍后再试。"}, sid
@@ -141,7 +214,13 @@ class App:
             return 200, {"over": True, "verdict": t.verdict()}, sid
         if len(text) > self.case["config"]["max_chars"]:
             return 200, {"error": self.case["texts"]["too_long"].format(n=self.case["config"]["max_chars"])}, sid
+        if path in ("/api/preview", "/api/say") and self.guard.over_budget():
+            return 200, {"error": "今天的体验额度已经用完了。可以结束陈词看看裁决。"}, sid
         if path == "/api/preview":
+            now = time.time()
+            if now - c.last_preview < 0.15:      # 防脚本刷接口；正常打字一次往返远大于这个间隔
+                return 200, {"skip": True}, sid
+            c.last_preview = now
             if len(text) < 4:
                 return 200, {"faces": {j["id"]: 0 for j in self.case["jurors"]}, "ms": 0, "text": text}, sid
             jd = c.judged(text)
@@ -173,6 +252,14 @@ def make_handler(app: App):
     class H(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"   # 浏览器到这里也复用连接
 
+        def _ip(self):
+            peer = self.client_address[0]
+            fwd = self.headers.get("X-Forwarded-For")
+            # 经内网穿透/反向代理进来时，对端是本机，真实 IP 在 X-Forwarded-For 里；外部直连时不信这个头
+            if fwd and peer in ("127.0.0.1", "::1"):
+                return fwd.split(",")[0].strip()
+            return peer
+
         def _sid(self):
             for part in (self.headers.get("Cookie") or "").split(";"):
                 k, _, v = part.strip().partition("=")
@@ -191,7 +278,7 @@ def make_handler(app: App):
             self.wfile.write(body)
 
         def do_GET(self):
-            if self.path in ("/", "/index.html"):
+            if self.path.split("?", 1)[0] in ("/", "/index.html"):   # 分享链接会带 ?code=口令
                 self._send(200, page, "text/html; charset=utf-8")
             else:
                 self._send(404, b"not found", "text/plain")
@@ -206,7 +293,7 @@ def make_handler(app: App):
             except (ValueError, UnicodeDecodeError):
                 return self._send(400, b'{"error":"bad request"}', "application/json")
             try:
-                code, obj, sid = app.api(self.path, body, self._sid())
+                code, obj, sid = app.api(self.path, body, self._sid(), self._ip())
             except JevError as e:
                 code, obj, sid = 502, {"error": f"Jev 暂时没有响应：{e}"}, self._sid()
             self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"),
@@ -230,6 +317,9 @@ def main(argv=None) -> int:
     ap.add_argument("--jev", choices=["auto", "mock", "real"], default="auto")
     ap.add_argument("--case", default="case1")
     ap.add_argument("--max-sessions", type=int, default=30)
+    ap.add_argument("--access-code", default="", help="访问口令；也可用环境变量 TWELVE_ACCESS_CODE。挂公网时务必设置")
+    ap.add_argument("--daily-budget", type=float, default=1.0, help="每天最多花多少美元调用 Jev，超过当天停用（0 = 不限）")
+    ap.add_argument("--max-courts-per-ip", type=int, default=6, help="同一 IP 每小时最多开几庭（0 = 不限）")
     ap.add_argument("--log-dir", default="twelve/logs")
     args = ap.parse_args(argv)
     try:
@@ -244,6 +334,10 @@ def main(argv=None) -> int:
     for ip in _lan_ips():
         print(f"  局域网访问： http://{ip}:{args.port}")
     print(f"  本机访问：   http://127.0.0.1:{args.port}")
+    g = app.guard
+    print(f"  访问口令：{'已设置' if g.code else '未设置（挂公网前务必用 --access-code 设置）'}"
+          f"；每日花费上限：{'$%.2f（今日已用 $%.4f）' % (g.budget, g.spent) if g.budget > 0 else '不限'}"
+          f"；每 IP 每小时最多开庭：{g.per_ip or '不限'}")
     print("  按 Ctrl+C 停止")
     os.environ.setdefault("TWELVE_QUIET", "1")
     try:
