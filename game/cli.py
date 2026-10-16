@@ -114,6 +114,8 @@ def main(argv=None) -> int:
             print(res.text)
             if isinstance(jev, RealJev):
                 print(_dim(f"  （Jev 用时 {elapsed:.1f} 秒）"))
+            if res.info.get("nudge"):
+                print(_dim("  （好像卡住了？输入 /hint，或直接说「给我提示」，会给你一点方向。）"))
             if res.kind == "jev_down":
                 print(_dim(f"原因: {res.info.get('error')}"))
             if res.clue:

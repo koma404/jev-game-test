@@ -108,17 +108,18 @@ class RealJev(JevClient):
 # --------------------------------------------------------------------------- Mock
 STRONG = {
     # 意图
-    "look_around": r"周围|四周|环顾|观察|看看|看一看|看一下|这里有什么|什么情况",
-    "ask_hint": r"提示|怎么办|卡关|卡住了|下一步|不知道怎么",
-    "examine_drawer": r"^(?!.*(砸|撬|强行|暴力|\d{4}))(?=.*(抽屉|密码|开锁)).*(查看|看看|检查|打开|怎么开|输入|试试|试一下|开)",
+    "look_around": r"^(?!.*(遗像|相框|照片|铜牌|画像)).*(周围|四周|环顾|观察|看看|看一看|看一下|这里有什么|什么情况)",
+    "examine_portrait": r"遗像|相框|照片|铜牌|画像",
+    "ask_hint": r"提示|怎么办|卡关|卡住了|下一步|不知道怎么|去哪|做什么",
+    "examine_drawer": r"^(?!.*(砸|撬|强行|暴力))(?=.*(抽屉|密码|开锁)).*(查看|看看|检查|打开|怎么开|输入|试试|试一下|开)",
     "check_items": r"背包|物品|线索|身上|携带|带了|我有什么",
     "go_archive": r"档案室|走廊|隔壁",
-    "go_hall": r"大厅|返回|回到|回去|上楼|上去",
+    "go_hall": r"大厅|返回|回到|回去|上楼|上去|离开|出去",
     "go_basement": r"机房|楼梯|地下|下楼|下去",
     "use_keycard": r"门禁卡|刷卡|刷开|刷一下|刷",
     "examine_shutter": r"卷帘|大门|铁门|门口",
-    "talk_zhou": r"守卫|老周|周师傅|聊|问|你好|您|馆长|资料|尊敬|敬重|停电",
-    "talk_lin": r"小林|管理员|聊|问|你好|您|馆长|密码|生日",
+    "talk_zhou": r"守卫|老周|周师傅|聊|问|你好|您|馆长|资料|尊敬|敬重|停电|cnm|傻|蠢|滚|混蛋|垃圾",
+    "talk_lin": r"小林|管理员|聊|问|你好|您|馆长|密码|生日|cnm|傻|蠢|滚|混蛋|垃圾",
     "open_drawer": r"\d{4}|输入|试试|填",
     "wrong_code": r"\d{4}|输入|试试|填",
     "pull_switch": r"总闸|电闸|闸|拉|合上|电源|推上",
@@ -172,13 +173,20 @@ class MockJev(JevClient):
             pat = STRONG.get(opt[3:] if opt.startswith("at_") else opt)
             m = re.search(pat, said) if pat else None
             if m:
-                first_pos[opt] = m.start()
+                first_pos[opt] = m.start(m.lastindex) if m.lastindex else m.start()   # 带排除前瞻的模式，位置取关键词本身
+        # 开抽屉/错误密码比"查看抽屉"更具体；非对话类的合法动作命中时，"想做但此地做不了"让位
+        for general, specific in (("examine_drawer", ("open_drawer", "wrong_code")),):
+            if general in first_pos and any(o in first_pos for o in specific):
+                first_pos.pop(general)
+        if any(not o.startswith(("at_", "talk_")) for o in first_pos):
+            for o in [o for o in first_pos if o.startswith("at_") and not o.startswith("at_talk_")]:
+                first_pos.pop(o)
         rank = {o: i for i, o in enumerate(sorted(first_pos, key=first_pos.get))}
         raw = {}
         for opt in criteria:
-            s = PRIOR.get(opt, 0.01 if opt.startswith('at_') else 0.03)
+            s = PRIOR.get(opt, 0.005 if opt.startswith('at_') else 0.015)
             if opt in first_pos:
-                s += STRONG_WEIGHT / (1 + RANK_DECAY * rank[opt]) * (0.4 if opt.startswith("at_") else 1)
+                s += STRONG_WEIGHT / (1 + RANK_DECAY * rank[opt]) 
             elif vague and not first_pos and opt != "none":  # 指代不明只在没有明确动作词时才摊薄概率
                 s += VAGUE_WEIGHT
             raw[opt] = s

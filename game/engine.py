@@ -72,6 +72,7 @@ class Engine:
         self.refuse_writer = refuse_writer  # (玩家原话, 场景, 预写文本) -> 文本；可选旁白钩子
         self.hints_used: dict[int, int] = {}
         self.behavior_uses: dict[str, int] = {}
+        self.stalled = 0
         self.clues: list[str] = []
         self.turn_no = 0
         self.texts = world.level["texts"]
@@ -107,8 +108,7 @@ class Engine:
                 "criteria": {b["id"]: b["hint_for_jev"] for b in w.behaviors(npc_id)},
             }
         for r in w.elsewhere_rules(st, code):   # 想做但此地做不了：只用来指路
-            criteria["at_" + r["id"]] = (f"玩家想做的是：{r['hint_for_jev']}。但这件事在玩家当前所在的房间做不了，"
-                                         f"玩家提到的对象或地点在别的房间")
+            criteria["at_" + r["id"]] = r.get("elsewhere_hint") or f"{r['hint_for_jev']}（但这件事在当前房间做不了）"
         for r in legal:
             if r.get("confirm"):
                 questions["confirm"] = {
@@ -141,7 +141,8 @@ class Engine:
         top_p = probs.get(choice, 0.0) if probs else 1.0
         conf = ia.get("confidence")
         ranked = sorted((k for k in probs if k in by_id), key=lambda k: -probs[k])
-        cands = [by_id[k] for k in ranked if probs[k] >= 0.1][:2]
+        cands = [by_id[k] for k in ranked if probs[k] >= 0.1]
+        cands = sorted(cands, key=lambda r: bool(r.get("npc")))[:2]   # 动作类优先，对话类靠后
         # 指路没有副作用，选错代价为零，阈值比执行动作低一些
         thr = self.world.cfg.get("elsewhere_threshold", 0.45) if choice in away else self.threshold
         low = top_p < thr or (conf is not None and conf < thr)
@@ -165,7 +166,14 @@ class Engine:
         except JevError as e:
             return TurnResult("jev_down", self.texts["jev_down"], info={"error": str(e)})
         self.turn_no += 1
+        before = self._progress_key()
         res = self._execute(plan)
+        if self._progress_key() != before or res.clue:
+            self.stalled = 0
+        else:
+            self.stalled += 1
+            if self.stalled and self.stalled % self.world.cfg.get("nudge_after", 6) == 0:
+                res.info["nudge"] = True
         self.logger.turn({
             "turn": self.turn_no, "input": text, "room": self.state.room, "kind": res.kind,
             "rule": res.rule_id, "intent_top": plan.intent_top, "intent_conf": plan.intent_conf,
@@ -173,6 +181,10 @@ class Engine:
             "candidates": [c["id"] for c in plan.candidates], "info": res.info,
         })
         return res
+
+    def _progress_key(self):
+        s = self.state
+        return (s.room, s.flags, s.items, len(self.clues))
 
     def hint(self) -> str:
         """递进式提示：同一阶段每问一次深入一层，最多到最直白的一层；阶段变了从头开始。"""
@@ -222,7 +234,14 @@ class Engine:
             return self._talk(plan, rule)
 
         self.state = w.apply(self.state, rule)
-        return TurnResult("act", rule["text"], rule_id=rule["id"], done=w.is_won(self.state))
+        text = rule["text"]
+        if plan.code and rule.get("text_with_code"):   # 玩家给了数字，回应里要体现"听见了"
+            text = rule["text_with_code"].format(code=plan.code)
+        elif rule.get("texts"):                         # 同一动作反复触发时轮换说法
+            n = self.behavior_uses.get(rule["id"], 0)
+            text = rule["texts"][n % len(rule["texts"])]
+            self.behavior_uses[rule["id"]] = n + 1
+        return TurnResult("act", text, rule_id=rule["id"], done=w.is_won(self.state))
 
     def _talk(self, plan: Plan, rule: dict) -> TurnResult:
         w = self.world

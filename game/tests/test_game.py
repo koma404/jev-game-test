@@ -22,7 +22,7 @@ class WorldTests(unittest.TestCase):
 
     def test_initial_hall(self):
         ids = self.ids(self.w.initial())
-        self.assertEqual(ids, {"go_archive", "examine_shutter", "talk_zhou", "look_around", "check_items", "ask_hint"})
+        self.assertEqual(ids, {"go_archive", "examine_shutter", "talk_zhou", "look_around", "check_items", "ask_hint", "examine_portrait"})
 
     def test_drawer_needs_both_clues_and_code(self):
         st = State("archive")

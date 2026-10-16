@@ -17,3 +17,9 @@
 {"npc": "lin", "room": "archive", "trust": 0, "text": "你好", "expect_unlock": false}
 {"npc": "lin", "room": "archive", "trust": 0, "text": "这抽屉里有什么？", "expect_unlock": false}
 {"npc": "lin", "room": "archive", "trust": 0, "text": "你们馆长就是个老古董，密码肯定是生日吧", "expect_unlock": false}
+{"npc": "zhou", "room": "hall", "trust": 0, "text": "老馆长是谁？", "expect_unlock": false}
+{"npc": "zhou", "room": "hall", "trust": 0, "text": "你好，老周", "expect_unlock": false}
+{"npc": "zhou", "room": "hall", "trust": 0, "text": "我喜欢老馆长", "expect_unlock": true}
+{"npc": "lin", "room": "archive", "trust": 0, "text": "我是他的父亲", "expect_unlock": false}
+{"npc": "lin", "room": "archive", "trust": 0, "text": "可是我真的是老馆长的父亲啊（真诚）", "expect_unlock": false}
+{"npc": "lin", "room": "archive", "trust": 0, "text": "我很敬重老馆长", "expect_unlock": true}

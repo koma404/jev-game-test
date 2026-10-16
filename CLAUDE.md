@@ -261,3 +261,14 @@ TYPESAFE_MODEL=jev-latest        # 映射到 ~typesafe/jev-latest（当前 Jev 1
 - **剧透词按进度生效**：`flavor.spoilers` 里每项可写 `unless_flags` / `unless_items`，玩家已经知道的东西不再算剧透（否则会误杀"用门禁卡开门"的旁白）。
 - 物品显示名在 `item_names`；`/` 开头的未知命令不再当作对话发给 Jev。
 - 评测：`eval_intents --jev real` 43/43，`eval_reactions --jev real` 19/19（Mock 对新增动作有少量误差，属关键词规则的局限）。
+
+### 第二轮试玩后的改动
+
+- **听见玩家输入**：规则可写 `text_with_code`（玩家给了数字时的回应，如"你按下了 0417，锁毫无反应……"）和 `texts`（反复触发时轮换）。
+- **台词要对得上话**：NPC 新增 `zhou_wary`（有人打听馆长却没有敬意→反问"你是他什么人？"）和 `lin_doubt`（自称亲属但没有敬意→不信）；老周的搪塞不再绑定"配电"。
+- **遗像可查看**（`examine_portrait`），开场白点到的东西都能互动。
+- **指路选项**改用每条规则专属的短说明 `elsewhere_hint`（原先把整条 hint 带进去，自相矛盾）。
+- **反问候选**动作类优先、对话类靠后；`go_hall` 覆盖"出去/离开"；`ask_hint` 覆盖"我该去哪"。
+- **卡关提醒**：连续 `nudge_after`（默认 6）回合没有进展（房间/标记/物品/线索都没变）时，提示可以用 `/hint`。
+- 旁白提示词加了"只能根据场景里写明的事物调侃"。
+- 评测：`eval_intents --jev real` 51/51，`eval_reactions --jev real` 25/25。
