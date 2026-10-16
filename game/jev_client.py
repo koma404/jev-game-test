@@ -48,7 +48,7 @@ class RealJev(JevClient):
     RETRY_STATUS = {429, 500, 502, 503, 504, 529}
 
     def __init__(self, api_key=None, base_url=None, model=None, timeout=None,
-                 max_retries=None, backoff=1.0, sleep=time.sleep, on_retry=None):
+                 max_retries=None, backoff=1.0, sleep=time.sleep, on_retry=None, proxy=None):
         env = os.environ
         key = api_key or env.get("TYPESAFE_API_KEY")
         if not key and env.get("TYPESAFE_KEY_FILE"):
@@ -62,6 +62,15 @@ class RealJev(JevClient):
         self.max_retries = int(max_retries if max_retries is not None else env.get("TYPESAFE_MAX_RETRIES", 2))
         self.backoff = backoff
         self._sleep = sleep
+        # TYPESAFE_PROXY: 不设=沿用系统代理；direct=强制直连；或填 http://主机:端口
+        proxy = proxy or env.get("TYPESAFE_PROXY", "")
+        if proxy.lower() in ("direct", "none", "off"):
+            handler = urllib.request.ProxyHandler({})
+        elif proxy:
+            handler = urllib.request.ProxyHandler({"http": proxy, "https": proxy})
+        else:
+            handler = urllib.request.ProxyHandler()
+        self._opener = urllib.request.build_opener(handler)
         self.on_retry = on_retry  # (第几次重试, 总重试数, 错误) 回调，CLI 用来提示用户
 
     @staticmethod
@@ -78,7 +87,7 @@ class RealJev(JevClient):
         last = None
         for attempt in range(self.max_retries + 1):
             try:
-                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                with self._opener.open(req, timeout=self.timeout) as resp:
                     return json.loads(resp.read().decode("utf-8"))
             except urllib.error.HTTPError as e:
                 detail = e.read().decode("utf-8", "replace")[:300]

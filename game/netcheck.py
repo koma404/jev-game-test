@@ -41,10 +41,14 @@ def main():
     if not RealJev.available():
         print("未配置 key，跳过 Jev 请求测试")
         return
-    jev = RealJev()
     q = {"x": {"type": "choice", "instructions": "选一个", "criteria": {"a": "A", "b": "B"}}}
-    for i in (1, 2, 3):
-        step(f"Jev 请求 #{i}", lambda: jev.ask({"t": "hi"}, q))
+    modes = [("当前设置", None)]
+    if proxies:
+        modes.append(("强制直连", "direct"))
+    for label, proxy in modes:
+        jev = RealJev(proxy=proxy, max_retries=0)
+        for i in (1, 2, 3):
+            step(f"Jev 请求 #{i}（{label}）", lambda: jev.ask({"t": "hi"}, q))
 
 
 if __name__ == "__main__":
