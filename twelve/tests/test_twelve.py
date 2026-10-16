@@ -188,6 +188,12 @@ class GuardTests(unittest.TestCase):
         codes = [app.api("/api/new", {}, None, "9.9.9.9")[0] for _ in range(3)]
         self.assertEqual(codes, [200, 200, 429])
         self.assertEqual(app.api("/api/new", {}, None, "8.8.8.8")[0], 200)
+
+    def test_unknown_ip_is_not_rate_limited_as_one_player(self):
+        """内网穿透不带真实 IP 时，所有玩家都像是 127.0.0.1；不能让他们共用一个开庭额度。"""
+        app = self.app(max_courts_per_ip=2)
+        codes = [app.api("/api/new", {}, None, None)[0] for _ in range(5)]
+        self.assertEqual(codes, [200] * 5)
         # 经不传真实 IP 的内网穿透进来（ip=None）：不能让所有玩家共用一个限额
         self.assertEqual([app.api("/api/new", {}, None, None)[0] for _ in range(4)], [200] * 4)
 
