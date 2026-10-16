@@ -10,8 +10,9 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlparse
 
-DEFAULT_MODEL = "anthropic/claude-haiku-5.5"
-FALLBACK_MODEL = "anthropic/claude-haiku-4.5"  # 主模型被拒（权限/路由/隐私设置）时换用
+DEFAULT_MODEL = "qwen/qwen3-30b-a3b-instruct-2507"
+# 主模型被拒（地区/权限/路由/余额）时依次换用；都是轻量、中文好的模型
+FALLBACK_MODELS = ("moonshotai/kimi-k2", "qwen/qwen-plus")
 
 SYSTEM = (
     "你是一个文字冒险游戏《停电的档案馆》的旁白，语气轻松、爱调侃，像一个爱吐槽的解说员。\n"
@@ -70,13 +71,13 @@ class FlavorWriter:
 
     def write(self, player_said: str, scene: str, fallback: str) -> str:
         self.last_error = None
-        models = [self.model] + ([FALLBACK_MODEL] if self.model != FALLBACK_MODEL else [])
+        models = [self.model] + [m for m in FALLBACK_MODELS if m != self.model]
         text = ""
         for i, model in enumerate(models):
             try:
                 text = self._call(model, player_said, scene)
                 break
-            except urllib.error.HTTPError as e:   # 4xx 多半是模型不可用：换备用模型再试一次
+            except urllib.error.HTTPError as e:   # 4xx 多半是该模型对你不可用：换下一个备用模型
                 detail = e.read().decode("utf-8", "replace")[:200].replace("\n", " ")
                 self.last_error = f"{model}: HTTP {e.code} {detail}"
                 if e.code not in (400, 402, 403, 404) or i == len(models) - 1:
