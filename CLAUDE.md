@@ -239,4 +239,5 @@ TYPESAFE_MODEL=jev-latest        # 映射到 ~typesafe/jev-latest（当前 Jev 1
 ```
 
 - 用云环境的"网络密钥"（Bearer，允许 `openrouter.ai`，路径前缀 `/api/v1/`）时，key 由代理在请求发出时附加，本地只需给 `TYPESAFE_API_KEY` 填任意占位值。
-- 下一步：用真实 Jev 跑 `python -m game.tests.eval_intents --jev real`，与 Mock 的 26/26 对比；再整局通关，把低置信度/选错的输入补进规则和 `tests/intents.jsonl`。
+- 已验证：经 OpenRouter 的 `jev-latest` 跑 `eval_intents --jev real` 为 26/26（与 Mock 一致；曾有"今天天气真不错"误判为 talk_zhou，已收紧 talk_zhou 的 hint）。
+- 下一步：用真实 Jev 整局通关，把低置信度/选错的输入补进规则和 `tests/intents.jsonl`。

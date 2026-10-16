@@ -95,7 +95,7 @@
       "needs": {"room": "hall"},
       "effects": {},
       "text": null,
-      "hint_for_jev": "玩家想和守卫老周说话、搭话或向他打听事情"
+      "hint_for_jev": "玩家想和守卫老周说话、搭话或向他打听与档案馆、停电、馆长相关的事情；与当前处境无关的闲聊不算"
     },
     {
       "id": "talk_lin",

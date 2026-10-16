@@ -262,6 +262,7 @@ class RealJevTests(unittest.TestCase):
         self.assertEqual(FakeJevHandler.calls, 3)
 
     def test_key_file_must_be_private(self):
+        saved_key = os.environ.pop("TYPESAFE_API_KEY", None)
         with tempfile.NamedTemporaryFile("w", delete=False) as f:
             f.write("sk-test\n")
         try:
@@ -273,6 +274,8 @@ class RealJevTests(unittest.TestCase):
             self.assertEqual(RealJev(base_url=self.url)._key, "sk-test")
         finally:
             os.environ.pop("TYPESAFE_KEY_FILE", None)
+            if saved_key is not None:
+                os.environ["TYPESAFE_API_KEY"] = saved_key
             os.unlink(f.name)
 
 
