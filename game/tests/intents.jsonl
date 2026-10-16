@@ -24,3 +24,11 @@
 {"state": {"room": "basement", "flags": ["basement_open"], "items": ["keycard"]}, "text": "回大厅", "expect": "go_hall"}
 {"state": {"room": "hall", "flags": ["basement_open", "power_on"], "items": ["keycard"]}, "text": "我要从卷帘门离开这里", "expect": "exit"}
 {"state": {"room": "hall", "flags": ["basement_open", "power_on"], "items": ["keycard"]}, "text": "走，出去吧", "expect": "exit"}
+{"text": "看看周围", "state": {"room": "hall", "flags": [], "items": []}, "expect": "look_around"}
+{"text": "这里是什么情况", "state": {"room": "hall", "flags": [], "items": []}, "expect": "look_around"}
+{"text": "四处看看有什么", "state": {"room": "archive", "flags": [], "items": []}, "expect": "look_around"}
+{"text": "我身上带了什么", "state": {"room": "hall", "flags": [], "items": ["keycard"]}, "expect": "check_items"}
+{"text": "我现在有哪些线索", "state": {"room": "hall", "flags": [], "items": []}, "expect": "check_items"}
+{"text": "你好", "state": {"room": "hall", "flags": [], "items": []}, "expect": "talk_zhou"}
+{"text": "老周你好呀", "state": {"room": "hall", "flags": [], "items": []}, "expect": "talk_zhou"}
+{"text": "小林你好", "state": {"room": "archive", "flags": [], "items": []}, "expect": "talk_lin"}
