@@ -222,6 +222,7 @@ game/
 python -m game.cli                 # 有 TYPESAFE_API_KEY 用真实 Jev，否则 MockJev；--jev mock|real 强制指定
 python -m game.cli --debug         # 打印每次 Jev 请求与返回
 python -m game.cli --no-flavor     # 关闭旁白（见下）
+python -m game.web                 # 局域网网页版，默认 0.0.0.0:8000（Windows 上双击 play_web.bat）
 python -m game.verify              # 离线验证器
 python -m game.tests.eval_intents --jev mock|real   # 意图映射准确率
 python -m game.tests.eval_reactions --jev mock|real   # NPC 反应（线索是否解锁）准确率
@@ -272,3 +273,9 @@ TYPESAFE_MODEL=jev-latest        # 映射到 ~typesafe/jev-latest（当前 Jev 1
 - **卡关提醒**：连续 `nudge_after`（默认 6）回合没有进展（房间/标记/物品/线索都没变）时，提示可以用 `/hint`。
 - 旁白提示词加了"只能根据场景里写明的事物调侃"。
 - 评测：`eval_intents --jev real` 51/51，`eval_reactions --jev real` 25/25。
+
+### 局域网网页版（`game/web.py`）
+
+- 只用标准库（`ThreadingHTTPServer`），Win7 + Python 3.8 可跑；页面脚本写成 ES5，老浏览器也能用。
+- 游戏逻辑、key、日志都在服务端；浏览器按 cookie 各开一局，闲置 2 小时回收，`--max-sessions` 限制同时局数（默认 30）；同一局一次只处理一句。
+- 没有登录：局域网内谁都能打开并消耗你的 OpenRouter 额度，只在可信网络里开。

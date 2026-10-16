@@ -3,6 +3,7 @@ import os
 import tempfile
 import threading
 import unittest
+import urllib.error
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from game import verify
@@ -400,6 +401,45 @@ class FlavorTests(unittest.TestCase):
             self.assertIsNone(FlavorWriter.from_jev(J))
         finally:
             os.environ.pop("TYPESAFE_FLAVOR")
+
+
+class WebTests(unittest.TestCase):
+    """网页版：每个 cookie 各开一局，命令与自然语言都能走通。"""
+
+    def setUp(self):
+        import argparse
+        from game import web
+        args = argparse.Namespace(level=None, jev="mock", log_dir="", no_flavor=True, max_sessions=2)
+        self.srv = HTTPServer(("127.0.0.1", 0), web.make_handler(web.Game(args)))
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        self.base = f"http://127.0.0.1:{self.srv.server_port}"
+
+    def tearDown(self):
+        self.srv.shutdown()
+        self.srv.server_close()
+
+    def call(self, path, body=None, cookie=None):
+        import urllib.request
+        req = urllib.request.Request(self.base + path, data=json.dumps(body or {}).encode(), method="POST",
+                                     headers={"Content-Type": "application/json", **({"Cookie": cookie} if cookie else {})})
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        try:
+            with opener.open(req) as r:
+                return r.status, json.loads(r.read()), (r.headers.get("Set-Cookie") or cookie or "").split(";")[0]
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read()), cookie
+
+    def test_sessions_are_independent_and_capped(self):
+        _, r, a = self.call("/api/start")
+        self.assertEqual(r["lines"][0]["kind"], "title")
+        _, _, b = self.call("/api/start")
+        self.call("/api/say", {"text": "去档案室"}, a)
+        _, ra, _ = self.call("/api/say", {"text": "/look"}, a)
+        _, rb, _ = self.call("/api/say", {"text": "/look"}, b)
+        self.assertIn("档案室", ra["lines"][0]["text"])
+        self.assertIn("大厅", rb["lines"][0]["text"])
+        code, r, _ = self.call("/api/start")          # max_sessions=2
+        self.assertEqual(code, 503)
 
 
 if __name__ == "__main__":
