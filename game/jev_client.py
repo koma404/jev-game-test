@@ -12,8 +12,10 @@ import re
 import stat
 import time
 import http.client
+import fnmatch
 import urllib.error
 import urllib.request
+from urllib.parse import unquote, urlparse
 
 DEFAULT_BASE_URL = "https://api.typesafe.ai/v1/systemone"
 DEFAULT_MODEL = "jev-latest"
@@ -21,6 +23,62 @@ DEFAULT_MODEL = "jev-latest"
 
 class JevError(Exception):
     pass
+
+
+# --------------------------------------------------------------------------- 代理
+def _bypass(host: str) -> bool:
+    """这个主机是否绕过系统代理。
+
+    标准库的 proxy_bypass 在 Windows 上会查注册表、再对主机名做正向和反向 DNS 查询；
+    挂着 Clash 一类代理时反向查询常常超时，每次请求平白多出近 10 秒。
+    这里只按例外列表匹配主机名，不做 DNS。"""
+    if os.name != "nt":
+        return bool(urllib.request.proxy_bypass(host))
+    if urllib.request.proxy_bypass_environment(host):
+        return True
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                            r"Software\Microsoft\Windows\CurrentVersion\Internet Settings") as k:
+            override = winreg.QueryValueEx(k, "ProxyOverride")[0]
+    except OSError:
+        return False
+    host = (host or "").lower()
+    for pat in str(override).split(";"):
+        pat = pat.strip().lower()
+        if pat == "<local>" and "." not in host:
+            return True
+        if pat and fnmatch.fnmatch(host, pat):
+            return True
+    return False
+
+
+def resolve_proxy(host: str, setting: str | None) -> str | None:
+    """TYPESAFE_PROXY：不设=沿用系统代理；direct=强制直连；或填 http://主机:端口。返回代理 URL 或 None。"""
+    setting = (setting or "").strip()
+    if setting.lower() in ("direct", "none", "off"):
+        return None
+    if setting:
+        return setting
+    p = urllib.request.getproxies()
+    url = p.get("https") or p.get("http")
+    if not url or _bypass(host):
+        return None
+    return url
+
+
+class _ProxyOnce(urllib.request.ProxyHandler):
+    """和 ProxyHandler 一样走代理，但不在每次请求时重新判断是否绕过（已在初始化时判断过一次）。"""
+
+    def proxy_open(self, req, proxy, type):
+        proxy_type, user, password, hostport = urllib.request._parse_proxy(proxy)
+        if user and password:
+            import base64
+            creds = base64.b64encode(f"{unquote(user)}:{unquote(password)}".encode()).decode("ascii")
+            req.add_header("Proxy-authorization", "Basic " + creds)
+        # 本地代理（Clash 等）都是普通 HTTP 代理；注册表里常见的 https://127.0.0.1:7890 写法也按 HTTP 处理
+        req.set_proxy(unquote(hostport), "http" if proxy_type in (None, "https") else proxy_type)
+        return None
 
 
 class JevClient:
@@ -62,14 +120,12 @@ class RealJev(JevClient):
         self.max_retries = int(max_retries if max_retries is not None else env.get("TYPESAFE_MAX_RETRIES", 2))
         self.backoff = backoff
         self._sleep = sleep
-        # TYPESAFE_PROXY: 不设=沿用系统代理；direct=强制直连；或填 http://主机:端口
-        proxy = proxy or env.get("TYPESAFE_PROXY", "")
-        if proxy.lower() in ("direct", "none", "off"):
-            handler = urllib.request.ProxyHandler({})
-        elif proxy:
-            handler = urllib.request.ProxyHandler({"http": proxy, "https": proxy})
+        # 代理只在这里判断一次；之后每次请求不再重新判断（见 _bypass 的说明）
+        self.proxy_url = resolve_proxy(urlparse(self.base_url).hostname or "", proxy or env.get("TYPESAFE_PROXY"))
+        if self.proxy_url:
+            handler = _ProxyOnce({"http": self.proxy_url, "https": self.proxy_url})
         else:
-            handler = urllib.request.ProxyHandler()
+            handler = urllib.request.ProxyHandler({})
         self._opener = urllib.request.build_opener(handler)
         self.on_retry = on_retry  # (第几次重试, 总重试数, 错误) 回调，CLI 用来提示用户
 

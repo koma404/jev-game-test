@@ -263,6 +263,20 @@ class RealJevTests(unittest.TestCase):
             self.jev(max_retries=2).ask({"player_said": "x"}, {})
         self.assertEqual(FakeJevHandler.calls, 3)
 
+    def test_proxy_decided_once_not_per_request(self):
+        """Windows 上标准库每次请求都做 proxy_bypass（含反向 DNS），可能卡近 10 秒；这里只在初始化时判断一次。"""
+        import urllib.request as ur
+        jev = RealJev(api_key="sk-test", base_url="http://jev.invalid/v1/systemone",
+                      proxy=f"http://127.0.0.1:{self.srv.server_port}", sleep=lambda s: None)
+        saved = ur.proxy_bypass
+        ur.proxy_bypass = lambda host: (_ for _ in ()).throw(AssertionError("不该每次请求都判断"))
+        try:
+            out = jev.ask({"player_said": "你好"}, {"intent": {"type": "choice", "criteria": {"a": None, "none": None}}})
+        finally:
+            ur.proxy_bypass = saved
+        self.assertIn("answers", out)          # 请求经由"代理"（假服务器）到达
+        self.assertEqual(FakeJevHandler.calls, 1)
+
     def test_key_file_must_be_private(self):
         saved_key = os.environ.pop("TYPESAFE_API_KEY", None)
         with tempfile.NamedTemporaryFile("w", delete=False) as f:

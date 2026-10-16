@@ -9,28 +9,18 @@ from __future__ import annotations
 
 import http.client
 import json
-import os
 import queue
 import ssl
 import time
-import urllib.request
 from urllib.parse import urlparse
 
 from game.jev_client import JevError, RealJev
 
 
-def _resolve_proxy(host: str, setting: str | None):
-    """返回 (proxy_host, proxy_port) 或 None。TYPESAFE_PROXY: 不设=系统代理；direct=直连；或 http://主机:端口。"""
-    setting = (setting or "").strip()
-    if setting.lower() in ("direct", "none", "off"):
+def _proxy_hostport(url: str | None):
+    if not url:
         return None
-    if not setting:
-        if urllib.request.proxy_bypass(host):
-            return None
-        setting = urllib.request.getproxies().get("https", "")
-        if not setting:
-            return None
-    p = urlparse(setting if "://" in setting else "http://" + setting)
+    p = urlparse(url if "://" in url else "http://" + url)
     # Windows 注册表里常见 https://127.0.0.1:7890 这种写法，本地代理其实都是普通 HTTP 代理
     return p.hostname, p.port or 8080
 
@@ -44,7 +34,7 @@ class KeepAliveJev(RealJev):
         self._https = u.scheme == "https"
         self._host, self._port = u.hostname, u.port or (443 if self._https else 80)
         self._path = u.path or "/"
-        self._proxy = _resolve_proxy(self._host, kw.get("proxy") or os.environ.get("TYPESAFE_PROXY"))
+        self._proxy = _proxy_hostport(self.proxy_url)   # RealJev 已经判断过一次是否走代理
         self._ctx = ssl.create_default_context() if self._https else None
         self._pool: queue.LifoQueue = queue.LifoQueue(maxsize=pool_size)
         self.last_ms = 0.0
