@@ -3,9 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>十二人</title>
 <style>
-:root{--bg:#f3f1ec;--fg:#1f2328;--dim:#6b7076;--card:#fff;--line:#dcd8cf;--accent:#1f5f8b;
+:root{color-scheme:light dark;--bg:#f3f1ec;--fg:#1f2328;--dim:#6b7076;--card:#fff;--line:#dcd8cf;--accent:#1f5f8b;
   --up:#2f8f5b;--down:#b9473b;--face:#f4d9a6;--ink:#3a2e22;--acq:#2f8f5b;--gui:#9aa0a6}
 @media (prefers-color-scheme: dark){:root{--bg:#141619;--fg:#e7e7e7;--dim:#8d939a;--card:#1d2024;--line:#30353b;--accent:#6cb6e6;
   --up:#55c486;--down:#e2766a;--face:#d8b57e;--ink:#2a2017;--acq:#55c486;--gui:#5b6168}}
@@ -44,6 +45,7 @@ h1{font-size:22px;margin:0;color:var(--accent)}
 #tools #count{margin-right:auto}
 button.sm{padding:5px 10px;font-size:13px}
 #docbtn,#docclose{display:none}
+#shade{display:none;position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.45);z-index:15}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:rgba(20,22,25,.92);color:#fff;padding:8px 14px;border-radius:8px;font-size:14px;max-width:90%;display:none;z-index:30}
 /* ---- 手机：计时、12 张脸、输入框固定在顶部，键盘弹出时也看得见 ---- */
 @media (max-width:640px){
@@ -118,6 +120,7 @@ button:disabled{opacity:.5;cursor:default}
   </div>
 </div>
 <div id="toast"></div>
+<div id="shade"></div>
 <div id="overlay"><div class="box" id="box"></div></div>
 <script>
 // 页面出错时显示出来，并报给服务端（打印在开服务的那个窗口里），方便排查不同浏览器的问题
@@ -146,11 +149,11 @@ window.onerror=function(msg, src, line, col){
   // ---- 脸 ----
   function face(m){
     var mouth = m>0 ? 'M17 39 Q28 49 39 39' : (m<0 ? 'M17 44 Q28 35 39 44' : 'M18 41 L38 41');
-    var brows = m<0 ? '<path d="M15 19 L24 22 M41 19 L32 22" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>' : '';
-    var col = m>0 ? '#2f8f5b' : (m<0 ? '#c0392b' : '#3a2e22');
-    return '<svg viewBox="0 0 56 56" data-m="'+m+'" style="color:'+col+'"><circle cx="28" cy="28" r="25" fill="'+(m>0?'#cfe8c6':m<0?'#f3c9bd':'#f4d9a6')+'"/>'+
-      '<circle cx="20" cy="26" r="3" fill="currentColor"/><circle cx="36" cy="26" r="3" fill="currentColor"/>'+brows+
-      '<path d="'+mouth+'" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round"/></svg>';
+    var brows = m<0 ? '<path d="M15 19 L24 22 M41 19 L32 22" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>' : '';
+    var col = m>0 ? '#1e7a46' : (m<0 ? '#b0281a' : '#1f160e');
+    return '<svg viewBox="0 0 56 56" data-m="'+m+'" style="color:'+col+'"><circle cx="28" cy="28" r="25" fill="'+(m>0?'#cfe8c6':m<0?'#f3c9bd':'#f4d9a6')+'" stroke="currentColor" stroke-opacity=".55" stroke-width="2"/>'+
+      '<circle cx="20" cy="26" r="3.6" fill="currentColor"/><circle cx="36" cy="26" r="3.6" fill="currentColor"/>'+brows+
+      '<path d="'+mouth+'" stroke="currentColor" stroke-width="3.6" fill="none" stroke-linecap="round"/></svg>';
   }
   function setFaces(f){ for(var i=0;i<jurors.length;i++){ var id=jurors[i].id; $('f_'+id).innerHTML=face(f&&f[id]||0); } }
   function setLeans(L){
@@ -285,8 +288,10 @@ window.onerror=function(msg, src, line, col){
   inp.addEventListener('keydown', function(e){
     if(e.keyCode===13 && !e.isComposing){ e.preventDefault(); say(); }   // 输入法选字时的回车 keyCode 是 229，不会进这里
   });
-  $('docbtn').onclick=function(){ $('dossier').className='panel open'; };
-  $('docclose').onclick=function(){ $('dossier').className='panel'; };
+  function doc(open){ $('dossier').className=open?'panel open':'panel'; $('shade').style.display=open?'block':'none'; }
+  $('docbtn').onclick=function(){ doc(true); };
+  $('docclose').onclick=function(){ doc(false); };
+  $('shade').onclick=function(){ doc(false); };
   var toastT=0;
   function toast(t){ var e=$('toast'); e.textContent=t; e.style.display='block'; clearTimeout(toastT); toastT=setTimeout(function(){ e.style.display='none'; }, 2500); }
   $('grid').onclick=function(e){   // 手机上不显示人设，点头像看一眼
