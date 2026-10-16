@@ -8,7 +8,8 @@
     雷区惩罚     = P(dislike_j) * dislike_weight
     delta_j      = clamp(基础 + 戳中 - 雷区, ±max_delta)
     专注系数：一句话戳中超过 focus_limit 人时按比例稀释（"什么都说等于什么都没说"）
-    重复衰减：同一论点每多讲一次，乘一次 repeat_decay
+    重复衰减：同一论点每多讲一次，乘一次 repeat_decay；讲到第 repeat_annoy+1 次起，所有人再 -repeat_penalty（听烦了）
+    念案卷：戳中加成再乘 (1 - recite_cut * P(recite))——事实要说出它意味着什么才打动人
     操纵：P(manip) > manip_threshold 时这句话作废，所有人 -manip_backlash
 """
 from __future__ import annotations
@@ -23,6 +24,8 @@ class Effect:
     manip: bool = False
     diluted: bool = False
     repeated: bool = False
+    annoyed: bool = False
+    recited: bool = False
     hit_ids: list = field(default_factory=list)
 
 
@@ -78,13 +81,18 @@ class Trial:
             focus = c["focus_limit"] / len(hit_ids)
         uses = self.arg_uses.get(jd.argument, 0) if jd.argument != "none" else 0
         rep = c["repeat_decay"] ** uses
+        annoyed = uses >= c.get("repeat_annoy", 99)
+        recite = 1.0 - c.get("recite_cut", 0.0) * jd.recite
+        if annoyed:
+            base = min(base, 0.0) - c.get("repeat_penalty", 0.0)   # 听烦了：讲得再好也不加分
         deltas = {}
         for j in self.jurors:
             k = j["id"]
-            d = base + jd.hits.get(k, 0.0) * c["hit_weight"] * qf * focus * rep \
+            d = base + jd.hits.get(k, 0.0) * c["hit_weight"] * qf * focus * rep * recite \
                 - jd.dislikes.get(k, 0.0) * c["dislike_weight"]
             deltas[k] = max(-c["max_delta"], min(c["max_delta"], d))
-        return Effect(deltas, diluted=focus < 1.0, repeated=uses > 0, hit_ids=hit_ids)
+        return Effect(deltas, diluted=focus < 1.0, repeated=uses > 0, annoyed=annoyed,
+                      recited=jd.recite > 0.5, hit_ids=hit_ids)
 
     def faces(self, deltas: dict) -> dict:
         t = self.cfg["face_threshold"]
@@ -110,8 +118,12 @@ class Trial:
             self.touched.update(eff.hit_ids)
             if eff.diluted:
                 notes.append(self.case["texts"]["diluted"])
-            if eff.repeated:
+            if eff.annoyed:
+                notes.append(self.case["texts"]["annoyed"])
+            elif eff.repeated:
                 notes.append(self.case["texts"]["repeated"])
+            if eff.recited:
+                notes.append(self.case["texts"]["recited"])
         reactions = []
         for j in ([] if eff.manip else self.jurors):   # 操纵时全体皱眉，脸上已经看得到，文字只留法官那句
             d = eff.deltas[j["id"]]
@@ -123,7 +135,7 @@ class Trial:
             notes.append(self.case["texts"]["silent"])
         sp = Spoken(text, eff.deltas, reactions, notes, self.votes())
         self.history.append({"text": text, "deltas": eff.deltas, "quality": jd.quality,
-                             "argument": jd.argument, "manip": jd.manip,
+                             "argument": jd.argument, "manip": jd.manip, "recite": round(jd.recite, 3),
                              "hits": {k: round(v, 3) for k, v in jd.hits.items()},
                              "dislikes": {k: round(v, 3) for k, v in jd.dislikes.items()}})
         return sp

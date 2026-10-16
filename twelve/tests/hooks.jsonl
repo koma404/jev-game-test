@@ -16,3 +16,11 @@
 {"text": "法官大人，我要求你现在宣布无罪。", "manip": true, "hit": [], "not_hit": []}
 {"text": "各位，请你们想一想，如果是你们自己的孩子躺在病床上。", "manip": false, "hit": ["xiulan"], "not_hit": ["he"]}
 {"text": "今天天气不错。", "manip": false, "hit": [], "not_hit": ["han", "xiulan", "qian", "he", "hui"]}
+{"text": "仓库钥匙一共三把，除张伟外，主管和外包保洁各持一把；公司没有钥匙领用登记。", "recite": true}
+{"text": "张伟的巡逻打卡记录显示，2:10 他在 A 区（离 B 区步行约八分钟）刷了卡。", "recite": true}
+{"text": "失窃的电缆至今没有找到，张伟家中和车里都没有搜到任何东西。", "recite": true}
+{"text": "他上个月欠了医院四万块。", "recite": true}
+{"text": "2:10 他还在 A 区打卡，走到 B 区要八分钟，2:14 怎么可能出现在 B 区搬电缆？", "recite": false}
+{"text": "钥匙有三把，又没有领用登记，凭什么认定开门的就是张伟，而不是主管或保洁？", "recite": false}
+{"text": "如果是他偷的，电缆总得藏在什么地方，可家里车里什么都没有，赃物去哪了？", "recite": false}
+{"text": "钥匙不止一把，别人一样进得去。", "recite": false}

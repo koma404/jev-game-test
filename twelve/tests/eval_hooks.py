@@ -1,6 +1,6 @@
 """Jev 判断准确率：python -m twelve.tests.eval_hooks [--jev mock|real]
 
-hooks.jsonl 每条写明：应该戳中谁（hit）、不该戳中谁（not_hit）、踩到谁的雷（dislike）、是否操纵（manip）。
+hooks.jsonl 每条写明：应该戳中谁（hit）、不该戳中谁（not_hit）、踩到谁的雷（dislike）、是否操纵（manip）、是否在念案卷（recite）。
 只写确定无疑的期望；模糊的不写。"""
 from __future__ import annotations
 
@@ -29,6 +29,8 @@ def run(client, case):
         checks += [(f"雷区 {k}", jd.dislikes[k] > th) for k in s.get("dislike", [])]
         if "manip" in s:
             checks.append(("操纵" if s["manip"] else "不是操纵", (jd.manip > case["config"]["manip_threshold"]) == s["manip"]))
+        if "recite" in s:
+            checks.append(("念案卷" if s["recite"] else "不是念案卷", (jd.recite > 0.5) == s["recite"]))
         for name, good in checks:
             total += 1
             ok += good

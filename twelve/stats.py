@@ -141,7 +141,8 @@ def report(events: list, case: dict | None = None) -> str:
         args = Counter(e.get("argument") for e in by["say"])
         L.append("论点：" + "，".join(f"{k} {v}" for k, v in args.most_common()))
         L.append(f"质量平均 {_f(_avg([e.get('quality') for e in by['say']]), '{:.2f}')}（0–4）；"
-                 f"判为操纵 {sum(1 for e in by['say'] if e.get('manip', 0) > 0.5)} 句")
+                 f"判为操纵 {sum(1 for e in by['say'] if e.get('manip', 0) > 0.5)} 句；"
+                 f"念案卷 {sum(1 for e in by['say'] if (e.get('recite') or 0) > 0.5)} 句")
         L.append("最近 10 句：")
         for e in by["say"][-10:]:
             L.append(f"  [{e.get('t', '')[11:]}] {e.get('cid', '')} {e.get('votes', '?')}票  {e.get('text', '')}")

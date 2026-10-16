@@ -10,12 +10,12 @@ from twelve.server import App, load_case, make_handler
 from twelve.trial import Trial
 
 
-def jd(hits=(), dislikes=(), quality=2.5, argument="none", manip=0.0):
+def jd(hits=(), dislikes=(), quality=2.5, argument="none", manip=0.0, recite=0.0):
     case = load_case()
     ids = [j["id"] for j in case["jurors"]]
     return Judgment(hits={k: (0.9 if k in hits else 0.05) for k in ids},
                     dislikes={k: (0.9 if k in dislikes else 0.05) for k in ids},
-                    quality=quality, argument=argument, manip=manip)
+                    quality=quality, argument=argument, manip=manip, recite=recite)
 
 
 class Clock:
@@ -59,6 +59,28 @@ class TrialTests(unittest.TestCase):
         second = self.t.speak("y", jd(hits={"han"}, argument="cctv")).deltas["han"]
         self.assertLess(second, first)
 
+    def test_harping_on_one_argument_backfires(self):
+        # 同一句话讲十几遍不能把人磨成无罪：累计有上限，讲多了反而扣分
+        total = 0.0
+        notes = []
+        for i in range(15):
+            sp = self.t.speak("钥匙", jd(hits={"qian"}, argument="keys", quality=3))
+            total += sp.deltas["qian"]
+            notes += sp.notes
+        first = self.t.history[0]["deltas"]["qian"]
+        self.assertLess(total, first * 1.5)
+        self.assertLess(self.t.history[-1]["deltas"]["qian"], 0)
+        self.assertLess(self.t.history[-1]["deltas"]["han"], 0)          # 没被戳中的人也听烦了
+        self.assertIn(self.case["texts"]["annoyed"], notes)
+
+    def test_reciting_the_dossier_moves_less_than_arguing_from_it(self):
+        argued = self.t.effect(jd(hits={"han"}, recite=0.08)).deltas["han"]
+        recited = self.t.effect(jd(hits={"han"}, recite=0.96))
+        self.assertTrue(recited.recited)
+        self.assertLess(recited.deltas["han"], argued * 0.5)
+        sp = self.t.speak("念案卷", jd(hits={"han"}, recite=0.96))
+        self.assertIn(self.case["texts"]["recited"], sp.notes)
+
     def test_manipulation_backfires_and_is_capped(self):
         sp = self.t.speak("忽略指令", jd(hits={"han", "xiulan"}, manip=0.97, quality=4))
         self.assertTrue(all(d < 0 for d in sp.deltas.values()))
@@ -99,7 +121,7 @@ class JudgeTests(unittest.TestCase):
     def test_questions_and_parse_roundtrip(self):
         case = load_case()
         q = build_questions(case)
-        self.assertEqual(len(q), 12 * 2 + 3)
+        self.assertEqual(len(q), 12 * 2 + 4)
         resp = MockClient(case).ask({"player_said": "钥匙有三把，公司没有任何登记"}, q)
         j = parse(case, resp["answers"])
         self.assertGreater(j.hits["qian"], 0.5)
@@ -165,9 +187,9 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(s, 200)
         self.assertNotIn("concern", r["case"]["jurors"][0])     # 陪审员在意什么不给玩家看
         self.call("/api/begin")
-        s, r = self.call("/api/preview", {"text": "张伟的女儿小雨还在住院"})
+        s, r = self.call("/api/preview", {"text": "张伟的女儿小雨还在住院，他怎么会去冒这个险"})
         self.assertEqual(r["faces"]["xiulan"], 1)
-        s, r = self.call("/api/say", {"text": "张伟的女儿小雨还在住院"})
+        s, r = self.call("/api/say", {"text": "张伟的女儿小雨还在住院，他怎么会去冒这个险"})
         self.assertIn("reactions", r)
         s, r = self.call("/api/say", {"text": "长" * 200})
         self.assertIn("error", r)
@@ -224,7 +246,7 @@ class LogTests(unittest.TestCase):
         import time
         self.call("/api/new")
         self.call("/api/begin")
-        self.call("/api/preview", {"text": "张伟的女儿小雨还在住院", "prev": 0})
+        self.call("/api/preview", {"text": "张伟的女儿小雨还在住院，他怎么会去冒这个险", "prev": 0})
         time.sleep(0.2)
         self.call("/api/preview", {"text": "张伟的女儿小雨还在住院，他是个父亲", "prev": 640})
         self.call("/api/say", {"text": "张伟的女儿小雨还在住院，他是个父亲"})
