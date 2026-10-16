@@ -34,6 +34,13 @@ class KeepAliveJev(RealJev):
         self._https = u.scheme == "https"
         self._host, self._port = u.hostname, u.port or (443 if self._https else 80)
         self._path = u.path or "/"
+        # 本机或局域网里的自部署模型（Kev 等）不收费，花费统计按 0 计
+        import ipaddress
+        try:
+            self.is_local = self._host == "localhost" or ipaddress.ip_address(self._host).is_private \
+                or ipaddress.ip_address(self._host).is_loopback
+        except ValueError:
+            self.is_local = False
         self._proxy = _proxy_hostport(self.proxy_url)   # RealJev 已经判断过一次是否走代理
         self._ctx = ssl.create_default_context() if self._https else None
         self._pool: queue.LifoQueue = queue.LifoQueue(maxsize=pool_size)

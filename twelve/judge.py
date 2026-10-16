@@ -79,7 +79,10 @@ class Judge:
         jd = parse(self.case, resp["answers"], ms)
         u = resp.get("usage") or {}
         # 输出免费；没有 cost 字段时按输入 $0.042 / 百万 token 估算
-        jd.cost = float(u.get("cost") or u.get("input_tokens", 0) * 0.042e-6)
+        if getattr(self.client, "is_local", False):
+            jd.cost = 0.0                       # 自部署模型不花钱
+        else:
+            jd.cost = float(u.get("cost") or u.get("input_tokens", 0) * 0.042e-6)
         return jd
 
 

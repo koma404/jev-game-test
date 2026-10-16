@@ -117,7 +117,25 @@ Jev 的接入方式（OpenRouter 端点、key、代理）与 v0.1 相同，见 `
   有同事反馈"Chrome 109 输入框点不出光标"未能复现；为此输入框改为始终可用（未开庭时点它会弹出开庭说明），
   开庭失败会明说原因并给"重新开庭"，页面脚本出错时显示红条并上报（服务窗口打印 `[浏览器报错]`，日志 `twelve/logs/client_errors.jsonl`）。
 
-## 8. 下一步
+## 8. 本地自部署模型（可选，未实测）
+
+Jev 不开源，只能用托管 API。社区有接口兼容的开源 System One 模型，其中 **Kev**（Apache 2.0，基于 Qwen）
+实现了 `POST /v1/systemone`（choice / noul / score，说明可为对象，一次多题），改 base URL 即可接入，不用改代码。
+
+- 显存：Kev-0.8B 要 4GB 级显卡；4B 要 L40S/H100 级；9B 约 17GB；不支持量化。8GB 的笔记本卡只能跑 0.8B。
+- 准确度（项目自测）：0.8B ≈ 0.70，4B ≈ 0.84，托管 Jev ≈ 0.86。能不能用，以 `eval_hooks --jev real` 实测为准（托管 Jev 56/56）。
+- 部署要点：README 只给了 Linux 命令，CUDA 下要装依赖 Triton 的 `flash-linear-attention`，Windows 上建议走 WSL2；
+  RTX 50 系需要 CUDA 12.8 版的 PyTorch；国内下载权重可设 `HF_ENDPOINT` 镜像。
+  ```
+  git clone https://github.com/jaredpalmer/kev.git && cd kev
+  uv sync --extra serve
+  uv run --extra serve python -m kev.serve --run jaredpalmer/kev-0.8b --port 8009   # 模型名以 README 为准
+  ```
+- 接入：`play_twelve_local.bat`（`TYPESAFE_BASE_URL=http://127.0.0.1:8009/v1/systemone`、强制直连、不计花费）。
+  本机/局域网地址的请求花费按 0 计（`link.py` 的 `is_local`）。
+- 演示含义会变：展示的是"System One 这一类模型"，不是 TypeSafe 的 Jev 本身。
+
+## 9. 下一步
 
 1. 在 Win7 机器上实际玩一局，看输入法下的手感，决定预览停顿时间（延迟已测，约 0.4 s）。
 2. 多人试玩，看日志调参：胜率、哪些陪审员太难或太容易、雷区是否过敏。
