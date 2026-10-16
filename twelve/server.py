@@ -98,6 +98,7 @@ def public_case(case: dict) -> dict:
     return {"title": case["title"], "brief": case["brief"], "dossier": case["dossier"],
             "time_limit": case["config"]["time_limit"], "win_votes": case["config"]["win_votes"],
             "max_chars": case["config"]["max_chars"], "debounce": case["config"]["preview_debounce_ms"],
+            "swing_band": case["config"].get("swing_band", 0), "hint_cost": case["config"].get("hint_cost", 10),
             "jurors": [{"id": j["id"], "name": j["name"], "role": j["role"], "persona": j["persona"]}
                        for j in case["jurors"]]}
 
@@ -318,12 +319,21 @@ class App:
                     return over()
                 sp = t.speak(text, jd)
                 h = dict(t.history[-1], deltas={k: round(v, 3) for k, v in t.history[-1]["deltas"].items()})
-                c.log("say", **h, votes=sp.votes, cached=cached,
+                c.log("say", **h, cached=cached,
                       jev_ms=None if cached else round(jd.ms), server_ms=round((time.time() - t0) * 1000),
                       leans={k: round(v, 2) for k, v in t.leans.items()}, time_left=round(t.time_left(), 1))
+                auto = None
+                cfg = self.case["config"]
+                if (t.stall >= cfg.get("stall_hint", 0) > 0 and sp.votes < cfg["win_votes"]
+                        and not jd.manip > cfg["manip_threshold"]):
+                    auto = t.hint(free=True)        # 连着几句没涨票：主动送一次提示，不扣时间
+                    t.stall = 0
+                    c.hints += 1
+                    c.log("hint", juror=auto["juror"], level=t.hinted.get(auto["juror"]), auto=True,
+                          time_left=round(t.time_left(), 1))
                 return 200, {"faces": t.faces(sp.deltas), "reactions": sp.reactions, "notes": sp.notes,
                              "votes": sp.votes, "need": self.case["config"]["win_votes"], "leans": t.leans, "ms": round(jd.ms),
-                             "time_left": t.time_left()}, sid
+                             "auto_hint": auto, "time_left": t.time_left()}, sid
             finally:
                 c.say_lock.release()
         return 404, {"error": "not found"}, sid

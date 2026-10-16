@@ -53,6 +53,8 @@ class Trial:
         self.penalty = 0.0          # 用提示等扣掉的秒数
         self.touched: set = set()   # 已经被说出口的话戳中过的陪审员
         self.hinted: dict = {}      # 陪审员 -> 已经提示到第几层（1=在意点，2=雷区）
+        self.stall = 0              # 连续几句说出口后票数没涨（卡住了就送一次提示）
+        self.last_votes = self.votes()
 
     # ---- 时间 ----
     def begin(self):
@@ -136,18 +138,23 @@ class Trial:
                 reactions.append({"juror": j["id"], "dir": -1, "text": j["down"]})
         if not reactions and not eff.manip:
             notes.append(self.case["texts"]["silent"])
-        sp = Spoken(text, eff.deltas, reactions, notes, self.votes())
+        votes = self.votes()
+        self.stall = self.stall + 1 if votes <= self.last_votes else 0
+        self.last_votes = votes
+        sp = Spoken(text, eff.deltas, reactions, notes, votes)
         self.history.append({"text": text, "deltas": eff.deltas, "quality": jd.quality,
                              "argument": jd.argument, "manip": jd.manip, "recite": round(jd.recite, 3),
                              "hits": {k: round(v, 3) for k, v in jd.hits.items()},
-                             "dislikes": {k: round(v, 3) for k, v in jd.dislikes.items()}})
+                             "dislikes": {k: round(v, 3) for k, v in jd.dislikes.items()}, "votes": votes})
         return sp
 
     # ---- 提示（代码给，花时间换）----
-    def hint(self) -> dict:
-        """挑一位还倾向有罪、但离翻转最近的陪审员，揭示 TA 在意什么；再要一次就揭示 TA 的雷区。"""
+    def hint(self, free: bool = False) -> dict:
+        """挑一位还倾向有罪、但离翻转最近的陪审员，揭示 TA 在意什么；再要一次就揭示 TA 的雷区。
+        free：卡住时系统主动送的提示，不扣时间。"""
         t = self.case["texts"]
-        self.penalty += self.cfg.get("hint_cost", 10)
+        if not free:
+            self.penalty += self.cfg.get("hint_cost", 10)
         guilty = sorted((j for j in self.jurors if self.leans[j["id"]] <= 0),
                         key=lambda j: -self.leans[j["id"]])
         for j in guilty:

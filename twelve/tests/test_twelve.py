@@ -121,6 +121,17 @@ class TrialTests(unittest.TestCase):
         self.assertEqual(h2["juror"], closest["id"])
         self.assertIn(closest["dislike"], h2["text"])
 
+    def test_free_hint_costs_no_time_and_stall_counts_flat_sentences(self):
+        self.t.begin()
+        before = self.t.time_left()
+        self.t.hint(free=True)
+        self.assertAlmostEqual(self.t.time_left(), before, delta=0.01)
+        self.t.speak("a", jd(quality=1.0))
+        self.t.speak("b", jd(quality=1.0))
+        self.assertEqual(self.t.stall, 2)
+        self.t.speak("c", jd(hits={"lin", "song", "xiulan"}, quality=3))
+        self.assertEqual(self.t.stall, 0)
+
     def test_timer_and_verdict(self):
         self.t.begin()
         self.clock.t += self.case["config"]["time_limit"] + 1
@@ -194,6 +205,14 @@ class ServerTests(unittest.TestCase):
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         with opener.open(self.base + "/?code=abc") as r:
             self.assertIn(b"<title>", r.read())
+
+    def test_auto_hint_when_stuck(self):
+        self.call("/api/new")
+        self.call("/api/begin")
+        r1 = self.call("/api/say", {"text": "今天天气不错啊各位"})[1]
+        r2 = self.call("/api/say", {"text": "我们来聊聊别的事情吧"})[1]
+        self.assertIsNone(r1["auto_hint"])
+        self.assertTrue(r2["auto_hint"]["text"])                  # 连着两句没涨票：送一次提示
 
     def test_full_flow(self):
         s, r = self.call("/api/new")

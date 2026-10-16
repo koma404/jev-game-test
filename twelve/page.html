@@ -7,9 +7,9 @@
 <title>十二人</title>
 <style>
 :root{color-scheme:light dark;--bg:#f3f1ec;--fg:#1f2328;--dim:#6b7076;--card:#fff;--line:#dcd8cf;--accent:#1f5f8b;
-  --up:#2f8f5b;--down:#b9473b;--face:#f4d9a6;--ink:#3a2e22;--acq:#2f8f5b;--gui:#9aa0a6}
+  --up:#2f8f5b;--down:#b9473b;--face:#f4d9a6;--ink:#3a2e22;--acq:#2f8f5b;--gui:#9aa0a6;--swing:#d49a0b;--swingbg:#fdf6e3;--tipbg:#fff6dc}
 @media (prefers-color-scheme: dark){:root{--bg:#141619;--fg:#e7e7e7;--dim:#8d939a;--card:#1d2024;--line:#30353b;--accent:#6cb6e6;
-  --up:#55c486;--down:#e2766a;--face:#d8b57e;--ink:#2a2017;--acq:#55c486;--gui:#5b6168}}
+  --up:#55c486;--down:#e2766a;--face:#d8b57e;--ink:#2a2017;--acq:#55c486;--gui:#5b6168;--swing:#e0b13a;--swingbg:#2a2516;--tipbg:#2b2617}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 "PingFang SC","Microsoft YaHei",sans-serif}
 #wrap{max-width:1040px;margin:0 auto;padding:16px}
@@ -22,14 +22,29 @@ h1{font-size:22px;margin:0;color:var(--accent)}
 #grid .j{width:calc(16.666% - 8px);margin:4px}
 @media (max-width:760px){#grid .j{width:calc(25% - 8px)}}
 @media (max-width:480px){#grid .j{width:calc(33.333% - 8px)}}
-.j{background:var(--card);border:2px solid var(--line);border-radius:10px;padding:8px 6px;text-align:center;transition:border-color .3s,box-shadow .3s}
+.j{position:relative;background:var(--card);border:2px solid var(--line);border-radius:10px;padding:8px 6px;text-align:center;transition:border-color .3s,background-color .3s,box-shadow .3s}
+/* 边框只表示立场：灰=倾向有罪，黄=摇摆（有罪，但再推一把就翻），绿=倾向无罪（计票） */
 .j.acq{border-color:var(--acq)}
-.j.flash-up{box-shadow:0 0 0 3px var(--up)} .j.flash-down{box-shadow:0 0 0 3px var(--down)}
+.j.swing{border-color:var(--swing);background:var(--swingbg)}
+.j.hl{box-shadow:0 0 0 3px var(--accent)}
+/* 说出口后的反应：卡片上冒一个气泡，几秒后消失 */
+.bub{position:absolute;left:3px;right:3px;bottom:3px;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:3px 4px;font-size:12px;line-height:1.35;box-shadow:0 2px 8px rgba(0,0,0,.18);opacity:0;transition:opacity .25s;pointer-events:none}
+.bub.on{opacity:1}
+.bub b{font-weight:normal} .bub.up b{color:var(--up)} .bub.down b{color:var(--down)}
+.bub .short{display:none}
 .j svg{width:56px;height:56px;display:block;margin:0 auto}
 .j .n{font-weight:bold;font-size:14px} .j .r{font-size:12px;color:var(--dim);line-height:1.3;min-height:2.6em}
 .bar{height:6px;background:var(--line);border-radius:3px;margin-top:6px;position:relative;overflow:hidden}
 .bar i{position:absolute;top:0;bottom:0;background:var(--gui)} .bar .mid{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--dim)}
-.j.acq .bar i{background:var(--acq)}
+.j.acq .bar i{background:var(--acq)} .j.swing .bar i{background:var(--swing)}
+#banner{display:none;margin-top:8px;padding:8px 12px;border-left:4px solid var(--swing);background:var(--tipbg);border-radius:6px;font-size:14px;line-height:1.5}
+#banner div{margin:2px 0}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin:6px 0 10px;font-size:14px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend svg{width:26px;height:26px}
+.sw{display:inline-block;width:22px;height:16px;border:2px solid var(--line);border-radius:4px;background:var(--card)}
+.sw.acq{border-color:var(--acq)} .sw.swing{border-color:var(--swing);background:var(--swingbg)}
+#box h3{margin:14px 0 4px;font-size:15px}
 #main{display:flex;margin-top:12px}
 #main>.panel:first-child{flex:2;margin-right:12px} #main>.panel:last-child{flex:1}
 @media (max-width:760px){#main{display:block} #main>.panel:first-child{margin:0 0 12px}}
@@ -61,6 +76,8 @@ button.sm{padding:5px 10px;font-size:13px}
   .j .r{min-height:0;font-size:11px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .j .pers{display:none}
   .bar{height:4px;margin-top:3px}
+  .bub{font-size:11px;padding:2px;text-align:center} .bub .full{display:none} .bub .short{display:inline}
+  #banner{margin-top:6px;padding:6px 10px;font-size:13px}
   #say{margin-top:6px}
   #in{padding:9px 10px}
   #say button{padding:9px 14px}
@@ -101,6 +118,7 @@ button:disabled{opacity:.5;cursor:default}
       <span id="ms"></span>
     </header>
     <div id="grid"></div>
+    <div id="banner"></div>
     <div id="say">
       <input id="in" autocomplete="off" enterkeyhint="send" placeholder="先点「开始陈词」">
       <button id="go" disabled>说出口</button>
@@ -158,27 +176,44 @@ window.onerror=function(msg, src, line, col){
       '<path d="'+mouth+'" stroke="currentColor" stroke-width="3.6" fill="none" stroke-linecap="round"/></svg>';
   }
   function setFaces(f){ for(var i=0;i<jurors.length;i++){ var id=jurors[i].id; $('f_'+id).innerHTML=face(f&&f[id]||0); } }
+  // 边框只表示立场：倾向 > 0 无罪（计票）；-swing < 倾向 <= 0 摇摆（仍算有罪）；其余有罪
+  function stance(v){ return v>0 ? 'acq' : (v>-swing ? 'swing' : ''); }
   function setLeans(L){
     leans=L; var n=0;
     for(var i=0;i<jurors.length;i++){
       var id=jurors[i].id, v=L[id], card=$('j_'+id), bar=$('b_'+id);
-      if(v>0){ n++; card.className='j acq'; } else card.className='j';
+      if(v>0) n++;
+      card.className='j '+stance(v)+(hl===id?' hl':'');
       var w=Math.min(50, Math.abs(v)/5*50);
       bar.style.left = v>=0 ? '50%' : (50-w)+'%'; bar.style.width = w+'%';
     }
     $('votes').textContent=n;
   }
-  function flash(reactions){
-    for(var i=0;i<reactions.length;i++){
-      (function(r){ var c=$('j_'+r.juror); c.className+=' flash-'+(r.dir>0?'up':'down');
-        setTimeout(function(){ setLeans(leans); }, 1500); })(reactions[i]);
-    }
+  // 说出口后：有反应的人卡片上冒气泡（电脑上是整句反应，手机上是"被打动 / 反感"），几秒后消失
+  var bubT=0;
+  function bubbles(reactions){
+    clearTimeout(bubT);
+    for(var i=0;i<jurors.length;i++) $('u_'+jurors[i].id).className='bub';
+    for(var k=0;k<reactions.length;k++){ var r=reactions[k], b=$('u_'+r.juror);
+      b.className='bub on '+(r.dir>0?'up':'down');
+      b.innerHTML='<b>'+(r.dir>0?'▲':'▼')+'</b> <span class="full"></span><span class="short">'+(r.dir>0?'被打动':'反感')+'</span>';
+      b.getElementsByTagName('span')[0].textContent=r.text; }
+    bubT=setTimeout(function(){ for(var i=0;i<jurors.length;i++) $('u_'+jurors[i].id).className='bub'; }, 4000);
+  }
+  var hl=null, hlT=0;
+  function highlight(id){ clearTimeout(hlT); hl=id; setLeans(leans); hlT=setTimeout(function(){ hl=null; setLeans(leans); }, 4000); }
+  // 输入框上方的提示条：说出口后的结果、提示都放这里（眼睛一直在脸上，下面的记录区容易看不到）
+  function banner(lines){
+    var b=$('banner'); if(!lines.length){ b.style.display='none'; return; }
+    var h=''; for(var i=0;i<lines.length;i++) h+='<div></div>'; b.innerHTML=h;
+    var ds=b.getElementsByTagName('div'); for(var k=0;k<lines.length;k++) ds[k].textContent=lines[k];
+    b.style.display='block';
   }
 
   // ---- 预览：停顿后把草稿发过去，同时只保留一个在途请求，只认最新草稿 ----
   // 每 100ms 看一眼输入框：内容停止变化超过 debounce 就发预览。
   // 不完全依赖输入法事件——有些输入法/浏览器不发 compositionend，那样会永远以为"还在拼音"。
-  var lastVal='', lastChange=0, lastComp=0, lastActive=new Date().getTime(), idleTipped=false;
+  var lastVal='', lastChange=0, lastComp=0, lastActive=new Date().getTime(), idleTipped=false, resultUntil=0, neutral=true, swing=0.5;
   function status(t, err){ $('ms').textContent=t; $('ms').className=err?'err':''; }
   function poll(){
     if(!started||over) return;
@@ -186,6 +221,8 @@ window.onerror=function(msg, src, line, col){
     if(v!==lastVal){ lastVal=v; lastChange=now; }
     if(composing && now-lastComp>1500) composing=false;     // 输入法事件卡住：1.5 秒没动静就当已上屏
     if(!composing && now-lastChange>=debounce) preview();
+    // 表情只表示"对正在打的这句话的预览"：输入框空了（或太短），说完的反应看几秒后回到中性
+    if(v.replace(/^\s+|\s+$/g,'').length<4 && !inflight && now>resultUntil && !neutral){ setFaces({}); neutral=true; }
     if(v || inflight) lastActive=now;
     if(!v && !inflight && now-lastActive>20000 && !idleTipped){ idleTipped=true;
       log('tip', '不知道说什么？看看右边的案卷，或者点「提示」，看看谁最容易被说服。'); }
@@ -203,7 +240,7 @@ window.onerror=function(msg, src, line, col){
       inflight=false; lastTotal=0;
       if(r.skip){ lastSent=null; if(pending){ pending=false; } return; }   // 服务端限速：下一轮再发
       if(s!==200 || r.error){ status('预览出错：'+(r.error||('HTTP '+s)), true); lastSent=null; return; }
-      if(s===200 && r.faces && my===seq) setFaces(r.faces);   // 落后一两个词没关系，读空气要的就是边打边看
+      if(s===200 && r.faces && my===seq){ setFaces(r.faces); neutral=false; resultUntil=0; }   // 落后一两个词没关系，读空气要的就是边打边看
       if(r.ms) lastTotal=new Date().getTime()-t0;
       status(r.ms ? 'Jev '+r.ms+' ms · 总 '+lastTotal+' ms' : (r.text && r.text.length>=4 ? '离线模拟' : '（太短，不预览）'));
       if(r.over) return finish(r.verdict);
@@ -220,13 +257,21 @@ window.onerror=function(msg, src, line, col){
       $('go').disabled=false; $('in').focus();
       if(r.over) return finish(r.verdict);
       if(r.error){ log('note', r.error); if(r.expired) location.reload(); return; }
-      setFaces(r.faces); setLeans(r.leans);
+      var before=0; for(var q in leans) if(leans[q]>0) before++;
+      setFaces(r.faces); neutral=false; resultUntil=new Date().getTime()+3000; setLeans(r.leans);
       for(var i=0;i<r.reactions.length;i++) log('react '+(r.reactions[i].dir>0?'up':'down'), r.reactions[i].text);
       for(var k=0;k<r.notes.length;k++) log('note', r.notes[k]);
-      flash(r.reactions);
+      bubbles(r.reactions);
       if(r.ms) $('ms').textContent='Jev 往返 '+r.ms+' ms';
-      var gap=(r.need||C.win_votes)-r.votes;
-      log('tip', gap>0 ? '现在 '+r.votes+' 人倾向无罪，还差 '+gap+' 人。' : '已经有 '+r.votes+' 人倾向无罪，够了。可以结束陈词，也可以继续巩固。');
+      var gap=(r.need||C.win_votes)-r.votes, lines=[];
+      var swingers=[]; for(var w=0;w<jurors.length;w++){ var lv=r.leans[jurors[w].id]; if(lv<=0 && lv>-swing) swingers.push(jurors[w].name); }
+      var head=(r.votes>before?'↑ ':r.votes<before?'↓ ':'')+(gap>0 ? '现在 '+r.votes+' 人倾向无罪，还差 '+gap+' 人。' : '已经有 '+r.votes+' 人倾向无罪，够了。可以结束陈词，也可以继续巩固。');
+      if(gap>0 && swingers.length) head+=' 摇摆中：'+swingers.join('、')+'。';
+      lines.push(head);
+      for(var m=0;m<r.notes.length;m++) lines.push(r.notes[m]);
+      log('tip', head);
+      if(r.auto_hint && r.auto_hint.text){ lines.push('【免费提示】'+r.auto_hint.text); log('tip', '【免费提示】'+r.auto_hint.text); if(r.auto_hint.juror) highlight(r.auto_hint.juror); }
+      banner(lines);
       $('chips').innerHTML=''; lastActive=new Date().getTime(); idleTipped=false;
     });
   }
@@ -237,8 +282,8 @@ window.onerror=function(msg, src, line, col){
     post('/api/hint', {}, function(s, r){
       $('hint').disabled=false;
       if(r.over) return finish(r.verdict);
-      if(r.text){ log('tip', r.text); deadline=new Date().getTime()+r.time_left*1000; tick();
-        if(r.juror){ var c=$('j_'+r.juror); c.className+=' flash-up'; setTimeout(function(){ setLeans(leans); }, 2500); } }
+      if(r.text){ log('tip', r.text); banner(['【提示】'+r.text]); deadline=new Date().getTime()+r.time_left*1000; tick();
+        if(r.juror) highlight(r.juror); }
       lastActive=new Date().getTime(); idleTipped=false;
     });
   }
@@ -274,7 +319,8 @@ window.onerror=function(msg, src, line, col){
       deadline=new Date().getTime()+r.time_left*1000; tick(); timerId=setInterval(tick, 250); setInterval(poll, 50);
       $('in').disabled=false; $('go').disabled=false; $('rest').disabled=false; $('hint').disabled=false;
       log('tip', '开庭了。在下面输入一句辩护的话，停一下，看看谁点头、谁皱眉；满意了再按回车。');
-      var ex=['凌晨的监控里，那个人的脸根本看不清。','他在这家公司守了八年夜，从没出过错。'], h='';
+      banner(['开庭了。先试试下面两句：一句讲证据，一句讲人情——看看点头的是不是同一批人。']);
+      var ex=['监控里那个人的脸根本看不清，凭什么认定就是张伟？','他一个人守了八年夜班，女儿还躺在医院，他怎么会拿这一切去赌一批电缆？'], h='';
       for(var i=0;i<ex.length;i++) h+='<button class="ghost ex">试一句：'+esc(ex[i])+'</button>';
       $('chips').innerHTML=h; var bs=$('chips').getElementsByTagName('button');
       for(var k=0;k<bs.length;k++) bs[k].onclick=(function(t){ return function(){ $('in').value=t; $('in').focus(); }; })(ex[k]); $('in').placeholder='说一句辩护的话，停一下看脸……'; $('in').focus();
@@ -315,16 +361,33 @@ window.onerror=function(msg, src, line, col){
   function open(){ post('/api/new', {code:code}, function(s, r){
     if(s===401){ return askCode(r.error||'请输入访问口令。'); }
     if(s!==200){ $('box').innerHTML='<h2>无法开庭</h2><p></p>'; $('box').getElementsByTagName('p')[0].textContent=r.error||('错误 '+s); $('overlay').style.display='flex'; return; }
-    C=r.case; jurors=C.jurors; debounce=(C.debounce==null?120:C.debounce);
+    C=r.case; jurors=C.jurors; debounce=(C.debounce==null?120:C.debounce); swing=C.swing_band||0;
     $('title').textContent=C.title; $('need').textContent=C.win_votes; inp.setAttribute('maxlength', C.max_chars);
     var g='';
     for(var i=0;i<jurors.length;i++){ var j=jurors[i];
-      g+='<div class="j" id="j_'+j.id+'"><div id="f_'+j.id+'"></div><div class="n">'+esc(j.name)+'</div><div class="r"><span class="role">'+esc(j.role)+'</span><span class="pers"><br>'+esc(j.persona)+'</span></div><div class="bar"><span class="mid"></span><i id="b_'+j.id+'"></i></div></div>'; }
+      g+='<div class="j" id="j_'+j.id+'"><div id="f_'+j.id+'"></div><div class="n">'+esc(j.name)+'</div><div class="r"><span class="role">'+esc(j.role)+'</span><span class="pers"><br>'+esc(j.persona)+'</span></div><div class="bar"><span class="mid"></span><i id="b_'+j.id+'"></i></div><div class="bub" id="u_'+j.id+'"></div></div>'; }
     $('grid').innerHTML=g; setFaces({}); setLeans(r.leans);
     var f=''; for(var k=0;k<C.dossier.length;k++) f+='<li>'+esc(C.dossier[k])+'</li>'; $('facts').innerHTML=f;
     var m=Math.floor(C.time_limit/60);
     $('t').textContent=m+':'+('0'+C.time_limit%60).slice(-2);
-    $('box').innerHTML='<h2>'+esc(C.title)+'</h2><p id="brief"></p><ol><li>右边的<b>案卷</b>里有你能用的事实。</li><li>在下方输入一句辩护的话。<b>停一下</b>，12 位陪审员的脸会变：<span style="color:#2f8f5b">点头</span>是被打动，<span style="color:#c0392b">皱眉</span>是反感。</li><li>满意了按<b>回车</b>，这句话才算说出口。脸下面的条是他们的倾向，<span style="color:#2f8f5b">绿色</span>就是倾向无罪。</li><li>每个人在意的东西不一样：同一句话，有人点头，有人皱眉。卡住了就点<b>提示</b>（扣 10 秒）。</li></ol><p class="note">时间一开始就不会停。别想着下命令——陪审员不吃这一套。</p><p><button id="start">开始陈词</button></p>';
+    var cost=C.hint_cost||10;
+    $('box').innerHTML='<h2>'+esc(C.title)+'</h2><p id="brief"></p>'+
+      '<h3>怎么玩</h3><ol>'+
+      '<li>'+(window.innerWidth<=640?'点「案卷」':'右边的<b>案卷</b>')+'里有你能用的事实。</li>'+
+      '<li>在输入框里打一句辩护的话，<b>停一下</b>，看 12 张脸怎么变。</li>'+
+      '<li>满意了按<b>回车</b>，这句话才算说出口，陪审员的立场才会改变。</li>'+
+      '<li>四分钟内让至少 <b>'+C.win_votes+'</b> 人倾向无罪。时间一开始就不会停。</li></ol>'+
+      '<h3>看懂陪审员</h3>'+
+      '<div class="legend"><span>'+face(1)+'点头</span><span>'+face(0)+'没感觉</span><span>'+face(-1)+'皱眉</span></div>'+
+      '<p class="note" style="margin:0 0 8px">表情只是对<b>你正在打的这句话</b>的预览，输入框空着时都是平静的。</p>'+
+      '<div class="legend"><span><i class="sw acq"></i>绿框：倾向无罪（计票）</span><span><i class="sw swing"></i>黄框：摇摆中，还算有罪，再推一把就翻</span><span><i class="sw"></i>灰框：倾向有罪</span></div>'+
+      '<p class="note" style="margin:0 0 8px">脸下面的细条是倾向：越往右越倾向无罪。说出口后，被打动或反感的人卡片上会冒出反应（▲ / ▼），输入框上方的黄条告诉你还差几票。</p>'+
+      '<h3>窍门</h3><ul>'+
+      '<li>每个人在意的东西不一样：同一句话，有人点头，有人皱眉。看看他们的身份。</li>'+
+      '<li>照抄案卷、反复讲同一件事都不管用——要说出事实<b>意味着什么</b>。</li>'+
+      '<li>卡住了点<b>提示</b>（扣 '+cost+' 秒）；连续两句没有进展，会免费送你一次。</li>'+
+      '<li>别想着下命令——陪审员不吃这一套。</li></ul>'+
+      '<p><button id="start">开始陈词</button></p>';
     $('brief').textContent=C.brief; $('overlay').style.display='flex'; $('start').onclick=begin;
     if(r.backend==='mock') $('ms').textContent='（离线模拟模式）';
   }); }
