@@ -55,10 +55,11 @@ button.sm{padding:5px 10px;font-size:13px}
   h1{display:none}
   .stat{font-size:13px} .stat b{font-size:16px}
   #grid{margin:-2px}
-  #grid .j{width:calc(16.666% - 4px);margin:2px;padding:3px 1px 4px;border-radius:8px}
-  .j svg{width:34px;height:34px}
+  #grid .j{width:calc(25% - 4px);margin:2px;padding:3px 2px 4px;border-radius:8px}
+  .j svg{width:32px;height:32px}
   .j .n{font-size:12px;line-height:1.3}
-  .j .r{display:none}
+  .j .r{min-height:0;font-size:11px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .j .pers{display:none}
   .bar{height:4px;margin-top:3px}
   #say{margin-top:6px}
   #in{padding:9px 10px}
@@ -71,7 +72,8 @@ button.sm{padding:5px 10px;font-size:13px}
   #dossier{display:none}
   #dossier.open{display:block;position:fixed;left:0;right:0;bottom:0;max-height:70vh;overflow-y:auto;z-index:20;border-radius:14px 14px 0 0;box-shadow:0 -6px 24px rgba(0,0,0,.25)}
   #docclose{display:inline-block;float:right}
-  #overlay{padding:10px} #overlay .box{padding:16px}
+  #overlay{padding:10px !important;align-items:flex-start !important;overflow-y:auto;-webkit-overflow-scrolling:touch} #overlay .box{padding:16px;max-height:none !important;overflow:visible !important;margin:0 0 10px}
+  #box ol{padding-left:18px} #box li{margin:4px 0}
 }
 #in{flex:1;font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
 button{font:inherit;padding:10px 16px;border:0;border-radius:8px;background:var(--accent);color:#fff;cursor:pointer}
@@ -82,7 +84,7 @@ button:disabled{opacity:.5;cursor:default}
 #hint{margin-left:8px}
 .tip{color:#8a5a00;font-size:14px} .tip:before{content:"※ "}
 #box ol{padding-left:20px} #box li{margin:6px 0}
-#overlay{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;padding:16px}
+#overlay{position:fixed;left:0;top:0;right:0;bottom:0;z-index:50;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;padding:16px}
 #overlay .box{background:var(--card);color:var(--fg);max-width:620px;width:100%;max-height:90vh;overflow-y:auto;border-radius:12px;padding:20px 22px}
 #overlay h2{margin:0 0 8px;color:var(--accent)}
 .vr{display:flex;gap:8px;margin:6px 0;font-size:14px} .vr b{min-width:4.5em} .vr .a{color:var(--acq)} .vr .g{color:var(--dim)}
@@ -195,14 +197,14 @@ window.onerror=function(msg, src, line, col){
     $('count').textContent=text.length+' / '+C.max_chars;
     if(text===lastSent) return;
     if(inflight){ pending=true; return; }
-    inflight=true; lastSent=text; var my=++seq;
+    inflight=true; lastSent=text; var my=++seq, t0=new Date().getTime();
     status('陪审员在听…');
     post('/api/preview', {text:text}, function(s, r){
       inflight=false;
       if(r.skip){ lastSent=null; if(pending){ pending=false; } return; }   // 服务端限速：下一轮再发
       if(s!==200 || r.error){ status('预览出错：'+(r.error||('HTTP '+s)), true); lastSent=null; return; }
       if(s===200 && r.faces && my===seq) setFaces(r.faces);   // 落后一两个词没关系，读空气要的就是边打边看
-      status(r.ms ? 'Jev 往返 '+r.ms+' ms' : (r.text && r.text.length>=4 ? '离线模拟' : '（太短，不预览）'));
+      status(r.ms ? 'Jev '+r.ms+' ms · 总 '+(new Date().getTime()-t0)+' ms' : (r.text && r.text.length>=4 ? '离线模拟' : '（太短，不预览）'));
       if(r.over) return finish(r.verdict);
       if(pending){ pending=false; preview(); }
     });
@@ -316,7 +318,7 @@ window.onerror=function(msg, src, line, col){
     $('title').textContent=C.title; $('need').textContent=C.win_votes; inp.setAttribute('maxlength', C.max_chars);
     var g='';
     for(var i=0;i<jurors.length;i++){ var j=jurors[i];
-      g+='<div class="j" id="j_'+j.id+'"><div id="f_'+j.id+'"></div><div class="n">'+esc(j.name)+'</div><div class="r">'+esc(j.role)+'<br>'+esc(j.persona)+'</div><div class="bar"><span class="mid"></span><i id="b_'+j.id+'"></i></div></div>'; }
+      g+='<div class="j" id="j_'+j.id+'"><div id="f_'+j.id+'"></div><div class="n">'+esc(j.name)+'</div><div class="r"><span class="role">'+esc(j.role)+'</span><span class="pers"><br>'+esc(j.persona)+'</span></div><div class="bar"><span class="mid"></span><i id="b_'+j.id+'"></i></div></div>'; }
     $('grid').innerHTML=g; setFaces({}); setLeans(r.leans);
     var f=''; for(var k=0;k<C.dossier.length;k++) f+='<li>'+esc(C.dossier[k])+'</li>'; $('facts').innerHTML=f;
     var m=Math.floor(C.time_limit/60);
