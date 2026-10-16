@@ -40,6 +40,37 @@ h1{font-size:22px;margin:0;color:var(--accent)}
 .note{color:var(--dim);font-size:14px}
 #dossier ol{padding-left:20px;margin:6px 0} #dossier li{margin:4px 0;font-size:14px}
 #say{display:flex;gap:8px;margin-top:10px}
+#tools{display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap}
+#tools #count{margin-right:auto}
+button.sm{padding:5px 10px;font-size:13px}
+#docbtn,#docclose{display:none}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:rgba(20,22,25,.92);color:#fff;padding:8px 14px;border-radius:8px;font-size:14px;max-width:90%;display:none;z-index:30}
+/* ---- 手机：计时、12 张脸、输入框固定在顶部，键盘弹出时也看得见 ---- */
+@media (max-width:640px){
+  #wrap{padding:0 8px 16px}
+  #top{position:sticky;top:0;z-index:10;background:var(--bg);padding:6px 0 6px;border-bottom:1px solid var(--line)}
+  header{gap:10px;margin-bottom:6px;align-items:center}
+  h1{display:none}
+  .stat{font-size:13px} .stat b{font-size:16px}
+  #grid{margin:-2px}
+  #grid .j{width:calc(16.666% - 4px);margin:2px;padding:3px 1px 4px;border-radius:8px}
+  .j svg{width:34px;height:34px}
+  .j .n{font-size:12px;line-height:1.3}
+  .j .r{display:none}
+  .bar{height:4px;margin-top:3px}
+  #say{margin-top:6px}
+  #in{padding:9px 10px}
+  #say button{padding:9px 14px}
+  #tools{margin-top:5px}
+  #docbtn{display:inline-block}
+  #chips{margin-top:8px}
+  #main{display:block;margin-top:8px}
+  #log{height:auto;overflow:visible;display:flex;flex-direction:column-reverse}   /* 最新的在最上面，紧挨输入框 */
+  #dossier{display:none}
+  #dossier.open{display:block;position:fixed;left:0;right:0;bottom:0;max-height:70vh;overflow-y:auto;z-index:20;border-radius:14px 14px 0 0;box-shadow:0 -6px 24px rgba(0,0,0,.25)}
+  #docclose{display:inline-block;float:right}
+  #overlay{padding:10px} #overlay .box{padding:16px}
+}
 #in{flex:1;font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
 button{font:inherit;padding:10px 16px;border:0;border-radius:8px;background:var(--accent);color:#fff;cursor:pointer}
 button.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
@@ -58,31 +89,35 @@ button:disabled{opacity:.5;cursor:default}
 <body>
 <div id="err" style="display:none;background:#c0392b;color:#fff;padding:8px 16px;font-size:14px"></div>
 <div id="wrap">
-  <header>
-    <h1 id="title">十二人</h1>
-    <span class="stat" id="timer">剩余 <b id="t">--:--</b></span>
-    <span class="stat">倾向无罪 <b id="votes">0</b> / 12，需要 <span id="need">7</span></span>
-    <span id="ms"></span>
-  </header>
-  <div id="grid"></div>
-  <div id="main">
-    <div class="panel">
-      <div id="log"></div>
-      <div id="say">
-        <input id="in" autocomplete="off" placeholder="点「开始陈词」后，在这里说话。按回车说出口。">
-        <button id="go" disabled>说出口</button>
-      </div>
-      <div id="count"></div>
-      <div id="chips"></div>
+  <div id="top">
+    <header>
+      <h1 id="title">十二人</h1>
+      <span class="stat" id="timer">剩余 <b id="t">--:--</b></span>
+      <span class="stat">无罪 <b id="votes">0</b>/12 · 需 <span id="need">7</span></span>
+      <span id="ms"></span>
+    </header>
+    <div id="grid"></div>
+    <div id="say">
+      <input id="in" autocomplete="off" enterkeyhint="send" placeholder="先点「开始陈词」">
+      <button id="go" disabled>说出口</button>
     </div>
+    <div id="tools">
+      <span id="count"></span>
+      <button id="docbtn" class="ghost sm">案卷</button>
+      <button id="hint" class="ghost sm" disabled>提示 −10秒</button>
+      <button id="rest" class="ghost sm" disabled>结束陈词</button>
+    </div>
+  </div>
+  <div id="chips"></div>
+  <div id="main">
+    <div class="panel"><div id="log"></div></div>
     <div class="panel" id="dossier">
-      <b>案卷</b>
+      <b>案卷</b><button id="docclose" class="ghost sm">收起</button>
       <ol id="facts"></ol>
-      <p><button id="hint" class="ghost" disabled>提示（扣 10 秒）</button></p>
-      <button id="rest" class="ghost" disabled>结束陈词，请陪审团裁决</button>
     </div>
   </div>
 </div>
+<div id="toast"></div>
 <div id="overlay"><div class="box" id="box"></div></div>
 <script>
 // 页面出错时显示出来，并报给服务端（打印在开服务的那个窗口里），方便排查不同浏览器的问题
@@ -164,7 +199,7 @@ window.onerror=function(msg, src, line, col){
       if(r.skip){ lastSent=null; if(pending){ pending=false; } return; }   // 服务端限速：下一轮再发
       if(s!==200 || r.error){ status('预览出错：'+(r.error||('HTTP '+s)), true); lastSent=null; return; }
       if(s===200 && r.faces && my===seq) setFaces(r.faces);   // 落后一两个词没关系，读空气要的就是边打边看
-      status(r.ms ? 'Jev 往返 '+r.ms+' ms' : '（太短，不预览）');
+      status(r.ms ? 'Jev 往返 '+r.ms+' ms' : (r.text && r.text.length>=4 ? '离线模拟' : '（太短，不预览）'));
       if(r.over) return finish(r.verdict);
       if(pending){ pending=false; preview(); }
     });
@@ -236,7 +271,7 @@ window.onerror=function(msg, src, line, col){
       var ex=['凌晨的监控里，那个人的脸根本看不清。','他在这家公司守了八年夜，从没出过错。'], h='';
       for(var i=0;i<ex.length;i++) h+='<button class="ghost ex">试一句：'+esc(ex[i])+'</button>';
       $('chips').innerHTML=h; var bs=$('chips').getElementsByTagName('button');
-      for(var k=0;k<bs.length;k++) bs[k].onclick=(function(t){ return function(){ $('in').value=t; $('in').focus(); }; })(ex[k]); $('in').placeholder='说服他们。停顿时看他们的脸，按回车说出口。'; $('in').focus();
+      for(var k=0;k<bs.length;k++) bs[k].onclick=(function(t){ return function(){ $('in').value=t; $('in').focus(); }; })(ex[k]); $('in').placeholder='说一句辩护的话，停一下看脸……'; $('in').focus();
     });
   }
 
@@ -250,6 +285,15 @@ window.onerror=function(msg, src, line, col){
   inp.addEventListener('keydown', function(e){
     if(e.keyCode===13 && !e.isComposing){ e.preventDefault(); say(); }   // 输入法选字时的回车 keyCode 是 229，不会进这里
   });
+  $('docbtn').onclick=function(){ $('dossier').className='panel open'; };
+  $('docclose').onclick=function(){ $('dossier').className='panel'; };
+  var toastT=0;
+  function toast(t){ var e=$('toast'); e.textContent=t; e.style.display='block'; clearTimeout(toastT); toastT=setTimeout(function(){ e.style.display='none'; }, 2500); }
+  $('grid').onclick=function(e){   // 手机上不显示人设，点头像看一眼
+    var el=e.target; while(el && el!==this && (' '+el.className+' ').indexOf(' j ')<0) el=el.parentNode;
+    if(!el || el===this) return;
+    for(var i=0;i<jurors.length;i++) if('j_'+jurors[i].id===el.id){ toast(jurors[i].name+'：'+jurors[i].role+'，'+jurors[i].persona); return; }
+  };
   $('go').onclick=say; $('hint').onclick=hint; $('rest').onclick=function(){ if(confirm('确定结束陈词吗？')) rest(); };
 
   // 访问口令：可以直接放在链接里分享（?code=xxx），否则弹框输入
