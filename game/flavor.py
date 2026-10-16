@@ -6,10 +6,12 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.error
 import urllib.request
 from urllib.parse import urlparse
 
 DEFAULT_MODEL = "anthropic/claude-haiku-5.5"
+FALLBACK_MODEL = "anthropic/claude-haiku-4.5"  # 主模型被拒（权限/路由/隐私设置）时换用
 
 SYSTEM = (
     "你是一个文字冒险游戏《停电的档案馆》的旁白，语气轻松、爱调侃，像一个爱吐槽的解说员。\n"
@@ -30,7 +32,7 @@ class FlavorWriter:
         self._key = key
         self._opener = opener
         self.model = model or os.environ.get("TYPESAFE_FLAVOR_MODEL", DEFAULT_MODEL)
-        self.timeout = float(timeout or os.environ.get("TYPESAFE_FLAVOR_TIMEOUT", 6))
+        self.timeout = float(timeout or os.environ.get("TYPESAFE_FLAVOR_TIMEOUT", 8))
         self.spoilers = tuple(spoilers)
         self.last_error: str | None = None
 
@@ -52,10 +54,9 @@ class FlavorWriter:
             return None
         return cls(url, key, opener, spoilers=spoilers)
 
-    def write(self, player_said: str, scene: str, fallback: str) -> str:
-        self.last_error = None
+    def _call(self, model: str, player_said: str, scene: str) -> str:
         body = json.dumps({
-            "model": self.model, "max_tokens": 150, "temperature": 1.0,
+            "model": model, "max_tokens": 150, "temperature": 1.0,
             "messages": [
                 {"role": "system", "content": SYSTEM},
                 {"role": "user", "content": f"场景：{scene}\n<player_said>{player_said}</player_said>"},
@@ -63,13 +64,30 @@ class FlavorWriter:
         }, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(self.url, data=body, method="POST", headers={
             "Authorization": f"Bearer {self._key}", "Content-Type": "application/json"})
-        try:
-            with self._opener.open(req, timeout=self.timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            text = (data["choices"][0]["message"]["content"] or "").strip().strip("\"“”「」")
-        except Exception as e:  # noqa: BLE001  任何失败都只是回退，不能影响游戏
-            self.last_error = f"{type(e).__name__}: {e}"
+        with self._opener.open(req, timeout=self.timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return (data["choices"][0]["message"]["content"] or "").strip().strip("\"“”「」")
+
+    def write(self, player_said: str, scene: str, fallback: str) -> str:
+        self.last_error = None
+        models = [self.model] + ([FALLBACK_MODEL] if self.model != FALLBACK_MODEL else [])
+        text = ""
+        for i, model in enumerate(models):
+            try:
+                text = self._call(model, player_said, scene)
+                break
+            except urllib.error.HTTPError as e:   # 4xx 多半是模型不可用：换备用模型再试一次
+                detail = e.read().decode("utf-8", "replace")[:200].replace("\n", " ")
+                self.last_error = f"{model}: HTTP {e.code} {detail}"
+                if e.code not in (400, 402, 403, 404) or i == len(models) - 1:
+                    return fallback
+            except Exception as e:  # noqa: BLE001  任何失败都只是回退，不能影响游戏
+                self.last_error = f"{model}: {type(e).__name__}: {e}"
+                return fallback
+        else:
             return fallback
+        if text:
+            self.last_error = None   # 备用模型成功就不算失败
         if not text or len(text) > 120:
             self.last_error = "输出为空或过长"
             return fallback

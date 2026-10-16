@@ -9,6 +9,7 @@ import time
 import urllib.request
 from urllib.parse import urlparse
 
+from .flavor import FlavorWriter
 from .jev_client import DEFAULT_BASE_URL, RealJev
 
 
@@ -49,6 +50,14 @@ def main():
         jev = RealJev(proxy=proxy, max_retries=0)
         for i in (1, 2, 3):
             step(f"Jev 请求 #{i}（{label}）", lambda: jev.ask({"t": "hi"}, q))
+        w = FlavorWriter.from_jev(jev)
+        if w:
+            def chat():
+                out = w.write("把墙砸了", "大厅", "(回退)")
+                if w.last_error:
+                    raise RuntimeError(w.last_error)
+                return out
+            step(f"旁白请求（{label}）", chat)
 
 
 if __name__ == "__main__":

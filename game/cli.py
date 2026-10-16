@@ -59,10 +59,19 @@ def main(argv=None) -> int:
     if isinstance(jev, RealJev) and not args.no_flavor:
         writer = FlavorWriter.from_jev(jev, spoilers=world.level.get("flavor", {}).get("spoilers", ()))
 
+    fails = {"n": 0}
+
     def flavor(said, scene, fallback):
+        if fails["n"] >= 3:   # 连续失败就别再让玩家白等了
+            return fallback
         text = writer.write(said, scene, fallback)
-        if args.debug and writer.last_error:
-            print(_dim(f"[旁白回退] {writer.last_error}"))
+        if writer.last_error:
+            fails["n"] += 1
+            print(_dim(f"  （旁白暂不可用，已用预写文本：{writer.last_error}）"))
+            if fails["n"] >= 3:
+                print(_dim("  （旁白连续失败 3 次，本次游戏不再尝试。可用 --no-flavor 关闭，或运行 netcheck.bat 排查）"))
+        else:
+            fails["n"] = 0
         return text
 
     eng = Engine(world, jev, threshold=args.threshold, logger=TurnLogger(args.log_dir or None),

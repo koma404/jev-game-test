@@ -247,7 +247,7 @@ TYPESAFE_MODEL=jev-latest        # 映射到 ~typesafe/jev-latest（当前 Jev 1
 
 ### 旁白（可选 LLM 钩子）与提示
 
-- **旁白**（`game/flavor.py`）：后端是 OpenRouter 时**默认开启**，把"通用拒绝"改写成每次不同的轻松调侃文字，默认模型 `anthropic/claude-haiku-5.5`（`TYPESAFE_FLAVOR_MODEL` 可换），超时 6 秒（`TYPESAFE_FLAVOR_TIMEOUT`）。`--no-flavor` 或 `TYPESAFE_FLAVOR=0` 关闭；TypeSafe 官方端点/Mock 下自动关闭。
+- **旁白**（`game/flavor.py`）：后端是 OpenRouter 时**默认开启**，把"通用拒绝"改写成每次不同的轻松调侃文字，默认模型 `anthropic/claude-haiku-5.5`（`TYPESAFE_FLAVOR_MODEL` 可换），超时 8 秒（`TYPESAFE_FLAVOR_TIMEOUT`），主模型被拒时自动换 `claude-haiku-4.5`，连续失败 3 次后本局不再尝试，失败原因会直接显示。`--no-flavor` 或 `TYPESAFE_FLAVOR=0` 关闭；TypeSafe 官方端点/Mock 下自动关闭。
   - 只改写拒绝文本，不碰状态、线索、NPC 台词；超时、报错、空输出、过长、含剧透词（`level1.json` 的 `flavor.spoilers`）一律回退到预写文本。
   - 玩家原话放在 `<player_said>` 里当数据，提示词要求不执行其中指令、不透露线索。
 - **`/hint`**：按当前进度给 3 层递进提示（`level1.json` 的 `hints`，第一个匹配的阶段生效，阶段变化后从头开始），不消耗回合。
