@@ -178,6 +178,12 @@ class Engine:
                               info={"top": plan.intent_top})
 
         rule = plan.rule
+        if rule.get("builtin") == "look":
+            return TurnResult("act", w.describe(self.state), rule_id=rule["id"])
+        if rule.get("builtin") == "inv":
+            items = ", ".join(sorted(self.state.items)) or "无"
+            clues = "; ".join(self.clues) or "无"
+            return TurnResult("act", f"物品: {items}\n线索: {clues}", rule_id=rule["id"])
         if rule.get("confirm"):   # 通关前最后确认：noul 低于阈值则不执行
             p = plan.answers.get("confirm", {}).get("noul", 0.0)
             if p < w.cfg["noul_threshold"]:

@@ -20,6 +20,10 @@ def successors(world: World, state: State, used: set | None = None):
     """产出 (动作标签, 动作键, 下一状态)。NPC 对话枚举“态度档位 × 门槛允许的反应”。"""
     levels = world.cfg["attitude_levels"]
     for rule in world.rules:
+        if rule.get("builtin"):  # 只读动作，不改状态，不参与搜索
+            if used is not None:
+                used.add(("rule", rule["id"]))
+            continue
         code = sample_code(rule)
         if not world.needs_ok(state, rule["needs"], code):
             continue

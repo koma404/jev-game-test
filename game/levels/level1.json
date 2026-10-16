@@ -49,6 +49,24 @@
   },
   "rules": [
     {
+      "id": "look_around",
+      "label": "环顾四周",
+      "builtin": "look",
+      "needs": {},
+      "effects": {},
+      "text": null,
+      "hint_for_jev": "玩家想看看周围、观察环境，或问这里有什么、现在是什么情况"
+    },
+    {
+      "id": "check_items",
+      "label": "查看物品和线索",
+      "builtin": "inv",
+      "needs": {},
+      "effects": {},
+      "text": null,
+      "hint_for_jev": "玩家想查看自己身上带了什么、手里有什么物品，或回顾自己目前已经掌握了哪些线索（是问自己的情况，不是向别人打听）"
+    },
+    {
       "id": "go_archive",
       "label": "去档案室",
       "needs": {"room": "hall"},
@@ -95,7 +113,7 @@
       "needs": {"room": "hall"},
       "effects": {},
       "text": null,
-      "hint_for_jev": "玩家想和守卫老周说话、搭话或向他打听与档案馆、停电、馆长相关的事情；与当前处境无关的闲聊不算"
+      "hint_for_jev": "玩家想和守卫老周打招呼、问候、说话，或向他打听与档案馆、停电、馆长相关的事情；与当前处境无关的闲聊不算"
     },
     {
       "id": "talk_lin",
@@ -104,7 +122,7 @@
       "needs": {"room": "archive"},
       "effects": {},
       "text": null,
-      "hint_for_jev": "玩家想和管理员小林说话、搭话或向她打听事情"
+      "hint_for_jev": "玩家想和管理员小林打招呼、问候、说话，或向她打听事情"
     },
     {
       "id": "open_drawer",
