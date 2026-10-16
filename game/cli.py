@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import sys
+import time
 
 from .engine import Engine, TurnLogger
 from .jev_client import JevError, MockJev, RealJev
@@ -80,8 +81,12 @@ def main(argv=None) -> int:
         else:
             if isinstance(jev, RealJev):
                 print("  （等待 Jev 回应……）", flush=True)
+            t0 = time.time()
             res = eng.turn(line)
+            elapsed = time.time() - t0
             print(res.text)
+            if isinstance(jev, RealJev):
+                print(_dim(f"  （Jev 用时 {elapsed:.1f} 秒）"))
             if res.kind == "jev_down":
                 print(_dim(f"原因: {res.info.get('error')}"))
             if res.clue:
