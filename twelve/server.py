@@ -125,7 +125,9 @@ class Guard:
     def code_ok(self, given) -> bool:
         return not self.code or secrets.compare_digest(str(given or ""), self.code)
 
-    def allow_open(self, ip: str) -> bool:
+    def allow_open(self, ip) -> bool:
+        if ip is None:       # 拿不到真实 IP：不按 IP 限流，免得所有玩家共用一个额度
+            return True
         now = time.time()
         with self.lock:
             hits = [t for t in self.opens.get(ip, []) if now - t < 3600]
@@ -256,8 +258,12 @@ def make_handler(app: App):
             peer = self.client_address[0]
             fwd = self.headers.get("X-Forwarded-For")
             # 经内网穿透/反向代理进来时，对端是本机，真实 IP 在 X-Forwarded-For 里；外部直连时不信这个头
-            if fwd and peer in ("127.0.0.1", "::1"):
-                return fwd.split(",")[0].strip()
+            if peer in ("127.0.0.1", "::1"):
+                if fwd:
+                    return fwd.split(",")[0].strip()
+                # 本机连进来、又没带真实 IP：可能是本机自己，也可能是不传 IP 的内网穿透。
+                # 这时没法按 IP 区分玩家，返回 None 跳过按 IP 限流（口令和每日花费上限照常生效）
+                return None
             return peer
 
         def _sid(self):

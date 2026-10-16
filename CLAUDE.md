@@ -93,7 +93,7 @@ Jev 的接入方式（OpenRouter 端点、key、代理）与 v0.1 相同，见 `
 - Jev 的弱项是算术、计数、多跳推理：这些全在代码里。也不要让它跨回合追踪对话。
 - 挂到公网时三道闸（`server.py` 的 `Guard`）：访问口令（`--access-code` / `TWELVE_ACCESS_CODE`，分享链接可带 `?code=`）、
   每日花费上限（`--daily-budget` 美元，按 Jev 返回的 `usage.cost` 累计，存 `logs/budget.json`，重启不清零）、
-  每 IP 每小时开庭数（`--max-courts-per-ip`；经内网穿透进来时取 `X-Forwarded-For`）。预览每庭最快 0.15 s 一次。
+  每 IP 每小时开庭数（`--max-courts-per-ip`；经内网穿透进来时取 `X-Forwarded-For`，本机连入又没有这个头时无法区分玩家，跳过按 IP 限流）。预览每庭最快 0.15 s 一次。
   再加一道最硬的：在 OpenRouter 后台给这个 key 设额度上限。Windows 上用 `play_twelve_public.bat`。
 - 成本实测：每次判断约 2,600 输入 token、$0.00011；一局 100–600 次预览 ≈ $0.01–0.07（¥0.1–0.5）。
 
@@ -135,7 +135,16 @@ Jev 不开源，只能用托管 API。社区有接口兼容的开源 System One 
   本机/局域网地址的请求花费按 0 计（`link.py` 的 `is_local`）。
 - 演示含义会变：展示的是"System One 这一类模型"，不是 TypeSafe 的 Jev 本身。
 
-## 9. 下一步
+## 9. 用 cpolar 挂公网（Windows）
+
+1. cpolar 官网注册、下载 Windows 安装包装好；命令行执行一次 `cpolar authtoken <后台里的 token>`。
+2. 双击 `play_twelve_public.bat`，设访问口令，窗口别关。
+3. 另开命令行：`cpolar http 8000`，"Forwarding" 那行（或浏览器 `localhost:9200` → 在线隧道列表）就是公网地址。
+4. 分享 `https://公网地址/?code=口令`；在 OpenRouter 后台给 key 设额度上限。
+- 免费档地址随机、24 小时内会变；固定二级子域名要基础套餐，自定义域名要专业套餐且大陆节点需 ICP 备案。
+- 电脑不能睡眠；Clash 用规则模式（国内直连），全局模式会把 cpolar 的流量绕到海外。
+
+## 10. 下一步
 
 1. 在 Win7 机器上实际玩一局，看输入法下的手感，决定预览停顿时间（延迟已测，约 0.4 s）。
 2. 多人试玩，看日志调参：胜率、哪些陪审员太难或太容易、雷区是否过敏。

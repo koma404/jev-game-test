@@ -188,6 +188,8 @@ class GuardTests(unittest.TestCase):
         codes = [app.api("/api/new", {}, None, "9.9.9.9")[0] for _ in range(3)]
         self.assertEqual(codes, [200, 200, 429])
         self.assertEqual(app.api("/api/new", {}, None, "8.8.8.8")[0], 200)
+        # 经不传真实 IP 的内网穿透进来（ip=None）：不能让所有玩家共用一个限额
+        self.assertEqual([app.api("/api/new", {}, None, None)[0] for _ in range(4)], [200] * 4)
 
 
 if __name__ == "__main__":
