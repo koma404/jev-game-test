@@ -150,13 +150,14 @@ Jev 不开源，只能用托管 API。社区有接口兼容的开源 System One 
 - 隧道窗口报 `failed to request quick Tunnel ... context deadline exceeded`：`cloudflared` 连不上 Cloudflare。它不读 Windows 系统代理，可在脚本里打开 `HTTPS_PROXY=http://127.0.0.1:7890`，或开 Clash 的 TUN 模式。
 - 打不开时按顺序排查：本机 `http://127.0.0.1:8000` 能否打开（服务）→ 隧道窗口地址是否为本次新地址、有无反复报错（隧道）→ 浏览器是 Cloudflare 502/1033（隧道连不到本机服务）还是根本连不上（网络访问 Cloudflare 不通）。
 
-**B. Render 免费版（地址固定、电脑可关机）**
+**B. Render 免费版（当前在用：地址固定、电脑可关机、不用实名）**
 1. 用 GitHub 登录 Render → New → Blueprint → 选本仓库和分支，读取根目录 `render.yaml`。
 2. 在 Render 后台填 `TYPESAFE_API_KEY`、`TWELVE_ACCESS_CODE`。
 - 闲置 15 分钟休眠，下次访问约 1 分钟唤醒；每月 750 小时免费；磁盘不保留——**每日花费记录在休眠/重启后清零**，所以 OpenRouter 的额度上限更重要。
 - 在平台负载均衡后面，`TWELVE_TRUST_PROXY=1` 让服务端从 `X-Forwarded-For` 取真实 IP；端口读环境变量 `PORT`。
+- 已部署成功。Render 跟踪所选分支，往分支 push 后自动重新部署。
 
-**C. 香港 / 日本 VPS（最终选择：国内访问稳、地址固定、电脑可关机）**
+**C. 香港 / 日本 VPS（备选：Render 在大陆访问不稳时再考虑；国内商家即使卖香港机器也要实名，只能选境外商家）**
 - 见 `deploy/README.md`：`scp` 把项目传上去 → `bash deploy/install.sh`（问 key、口令、每日上限、端口）→ 发 `http://IP/?code=口令`。
 - 安装脚本：代码放 `/opt/twelve`，设置在 `/etc/twelve/env`（600），systemd 服务 `twelve` 以低权限用户运行、开机自启、崩溃重启，
   只能写 `/var/lib/twelve`（日志和每日花费记录，重启不清零）；`--update` 只换代码不动设置。
