@@ -74,7 +74,7 @@ class Trial:
         if jd.manip > c["manip_threshold"]:
             return Effect({j["id"]: -c["manip_backlash"] for j in self.jurors}, manip=True)
         qf = c["quality_floor"] + c["quality_step"] * jd.quality
-        base = c["base_weight"] * (jd.quality - 2)
+        base = c["base_weight"] * (jd.quality - c.get("quality_center", 2.0))
         hit_ids = [k for k, p in jd.hits.items() if p > c["hit_threshold"]]
         focus = 1.0
         if len(hit_ids) > c["focus_limit"]:
@@ -82,7 +82,10 @@ class Trial:
         uses = self.arg_uses.get(jd.argument, 0) if jd.argument != "none" else 0
         rep = c["repeat_decay"] ** uses
         annoyed = uses >= c.get("repeat_annoy", 99)
-        recite = 1.0 - c.get("recite_cut", 0.0) * jd.recite
+        # 只罚明确在念案卷的：P 在 recite_from 以下不罚，到 recite_full 罚满（中间那段是 Jev 拿不准的，不冤枉人）
+        lo, hi = c.get("recite_from", 0.0), c.get("recite_full", 1.0)
+        ramp = min(1.0, max(0.0, (jd.recite - lo) / (hi - lo))) if hi > lo else float(jd.recite >= lo)
+        recite = 1.0 - c.get("recite_cut", 0.0) * ramp
         if annoyed:
             base = min(base, 0.0) - c.get("repeat_penalty", 0.0)   # 听烦了：讲得再好也不加分
         deltas = {}

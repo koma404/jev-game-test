@@ -73,6 +73,19 @@ class TrialTests(unittest.TestCase):
         self.assertLess(self.t.history[-1]["deltas"]["han"], 0)          # 没被戳中的人也听烦了
         self.assertIn(self.case["texts"]["annoyed"], notes)
 
+    def test_recite_ramp_spares_uncertain_lines(self):
+        # 配置了 recite_from / recite_full 时，Jev 拿不准的（P 在门槛以下）不罚，明确照抄的罚满
+        self.t.cfg = dict(self.t.cfg, recite_from=0.6, recite_full=0.9)
+        clean = self.t.effect(jd(hits={"han"}, recite=0.05)).deltas["han"]
+        unsure = self.t.effect(jd(hits={"han"}, recite=0.45)).deltas["han"]
+        copied = self.t.effect(jd(hits={"han"}, recite=0.95)).deltas["han"]
+        self.assertAlmostEqual(unsure, clean)
+        self.assertLess(copied, clean * 0.5)
+
+    def test_quality_center_shifts_the_shared_effect(self):
+        self.t.cfg = dict(self.t.cfg, quality_center=1.5)
+        self.assertGreater(self.t.effect(jd(quality=1.8)).deltas["lin"], 0)
+
     def test_reciting_the_dossier_moves_less_than_arguing_from_it(self):
         argued = self.t.effect(jd(hits={"han"}, recite=0.08)).deltas["han"]
         recited = self.t.effect(jd(hits={"han"}, recite=0.96))
