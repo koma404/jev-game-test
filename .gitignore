@@ -5,3 +5,6 @@ game/logs/
 key.txt
 twelve/logs/
 cloudflared.exe
+
+# cloudflared 运行时在当前目录生成的空配置
+/config.yml
