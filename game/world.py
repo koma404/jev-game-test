@@ -128,6 +128,13 @@ class World:
         return self._apply_effects(state, behavior.get("effects", {}))
 
     # ---- 展示 ----
+    def hint_stage(self, state: State) -> tuple[int, list[str]]:
+        """按当前状态找第一个匹配的提示阶段，返回 (阶段序号, 递进提示)。"""
+        for i, h in enumerate(self.level.get("hints", [])):
+            if self.needs_ok(state, h["when"]):
+                return i, h["levels"]
+        return -1, ["（暂时没有可提示的内容。）"]
+
     def describe(self, state: State) -> str:
         room = self.rooms[state.room]
         parts = [f"【{room['name']}】{room['desc']}"]

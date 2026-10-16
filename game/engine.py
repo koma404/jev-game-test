@@ -62,13 +62,15 @@ class TurnLogger:
 class Engine:
     def __init__(self, world: World, jev: JevClient, state: State | None = None,
                  threshold: float | None = None, logger: TurnLogger | None = None,
-                 on_exchange=None):
+                 on_exchange=None, refuse_writer=None):
         self.world = world
         self.jev = jev
         self.state = state or world.initial()
         self.threshold = threshold if threshold is not None else world.cfg["low_conf_threshold"]
         self.logger = logger or TurnLogger(None)
         self.on_exchange = on_exchange  # (请求, 响应) 回调，--debug 用
+        self.refuse_writer = refuse_writer  # (玩家原话, 场景, 预写文本) -> 文本；可选旁白钩子
+        self.hints_used: dict[int, int] = {}
         self.clues: list[str] = []
         self.turn_no = 0
         self.texts = world.level["texts"]
@@ -162,6 +164,13 @@ class Engine:
         })
         return res
 
+    def hint(self) -> str:
+        """递进式提示：同一阶段每问一次深入一层，最多到最直白的一层；阶段变了从头开始。"""
+        idx, levels = self.world.hint_stage(self.state)
+        n = self.hints_used.get(idx, 0)
+        self.hints_used[idx] = min(n + 1, len(levels))
+        return f"（提示 {min(n + 1, len(levels))}/{len(levels)}）{levels[min(n, len(levels) - 1)]}"
+
     def _execute(self, plan: Plan) -> TurnResult:
         w, t = self.world, self.texts
         if plan.kind == "clarify":
@@ -174,8 +183,14 @@ class Engine:
                 msg = t["clarify_none"]
             return TurnResult("clarify", msg, info={"top": plan.intent_top})
         if plan.kind == "refuse":
-            return TurnResult("refuse", w.rooms[self.state.room].get("refuse", t["refuse_default"]),
-                              info={"top": plan.intent_top})
+            text = w.rooms[self.state.room].get("refuse", t["refuse_default"])
+            info = {"top": plan.intent_top}
+            if self.refuse_writer:
+                scene = w.describe(self.state).replace("\n", " ")
+                written = self.refuse_writer(plan.text, scene, text)
+                info["flavor"] = written != text
+                text = written
+            return TurnResult("refuse", text, info=info)
 
         rule = plan.rule
         if rule.get("builtin") == "look":

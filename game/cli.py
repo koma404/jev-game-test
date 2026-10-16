@@ -8,10 +8,11 @@ import sys
 import time
 
 from .engine import Engine, TurnLogger
+from .flavor import FlavorWriter
 from .jev_client import JevError, MockJev, RealJev
 from .world import World, load_level
 
-HELP = "直接输入你想做的事。/look 看周围  /inv 物品  /clues 线索  /quit 退出"
+HELP = "直接输入你想做的事。/look 看周围  /inv 物品  /clues 线索  /hint 提示  /quit 退出"
 
 
 def make_jev(kind: str):
@@ -34,6 +35,8 @@ def main(argv=None) -> int:
                     help="auto: 有 TYPESAFE_API_KEY 用真实 Jev，否则 Mock")
     ap.add_argument("--level", help="关卡 json，默认 level1")
     ap.add_argument("--debug", action="store_true", help="打印每次 Jev 请求与返回")
+    ap.add_argument("--no-flavor", action="store_true",
+                    help="关闭旁白（默认在 OpenRouter 后端自动开启：LLM 把通用拒绝改写成调侃文字）")
     ap.add_argument("--threshold", type=float, help="低置信度阈值，默认取关卡配置(0.6)")
     ap.add_argument("--log-dir", default="game/logs", help="日志目录，传空字符串关闭")
     args = ap.parse_args(argv)
@@ -52,9 +55,19 @@ def main(argv=None) -> int:
         print(_dim("--- Jev 请求 ---\n" + json.dumps(req, ensure_ascii=False, indent=2) +
                    "\n--- Jev 返回 ---\n" + json.dumps(resp, ensure_ascii=False, indent=2)))
 
+    writer = None
+    if isinstance(jev, RealJev) and not args.no_flavor:
+        writer = FlavorWriter.from_jev(jev, spoilers=world.level.get("flavor", {}).get("spoilers", ()))
+
+    def flavor(said, scene, fallback):
+        text = writer.write(said, scene, fallback)
+        if args.debug and writer.last_error:
+            print(_dim(f"[旁白回退] {writer.last_error}"))
+        return text
+
     eng = Engine(world, jev, threshold=args.threshold, logger=TurnLogger(args.log_dir or None),
-                 on_exchange=show if args.debug else None)
-    print(f"== {world.level['title']} ==  (后端: {jev.name})")
+                 on_exchange=show if args.debug else None, refuse_writer=flavor if writer else None)
+    print(f"== {world.level['title']} ==  (后端: {jev.name}，旁白: {'开' if writer else '关'})")
     print(world.level["intro"])
     print(world.describe(eng.state))
     print(HELP)
@@ -76,6 +89,8 @@ def main(argv=None) -> int:
             print(world.describe(eng.state))
         elif line == "/inv":
             print("物品: " + (", ".join(sorted(eng.state.items)) or "无"))
+        elif line == "/hint":
+            print(eng.hint())
         elif line == "/clues":
             print("线索: " + ("; ".join(eng.clues) or "无"))
         else:

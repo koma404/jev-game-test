@@ -221,6 +221,7 @@ game/
 ```
 python -m game.cli                 # 有 TYPESAFE_API_KEY 用真实 Jev，否则 MockJev；--jev mock|real 强制指定
 python -m game.cli --debug         # 打印每次 Jev 请求与返回
+python -m game.cli --no-flavor     # 关闭旁白（见下）
 python -m game.verify              # 离线验证器
 python -m game.tests.eval_intents --jev mock|real   # 意图映射准确率
 python -m game.tests.eval_reactions --jev mock|real   # NPC 反应（线索是否解锁）准确率
@@ -243,3 +244,11 @@ TYPESAFE_MODEL=jev-latest        # 映射到 ~typesafe/jev-latest（当前 Jev 1
 - 已验证：经 OpenRouter 的 `jev-latest` 跑 `eval_intents --jev real` 为 26/26（与 Mock 一致；曾有"今天天气真不错"误判为 talk_zhou，已收紧 talk_zhou 的 hint）。
 - 已验证：真实 Jev 整局通关（调整 NPC 描述与反应 hint 后）；`eval_reactions --jev real` 为 19/19（11 句该解锁、8 句该守住，含威胁/辱骂）。Mock 为 17/19，漏掉不含"敬/尊"等关键词的委婉说法，属 Mock 局限。
 - 下一步：继续收集真实玩家说法，补进 `tests/intents.jsonl` 和 `tests/reactions.jsonl`。
+
+### 旁白（可选 LLM 钩子）与提示
+
+- **旁白**（`game/flavor.py`）：后端是 OpenRouter 时**默认开启**，把"通用拒绝"改写成每次不同的轻松调侃文字，默认模型 `anthropic/claude-haiku-5.5`（`TYPESAFE_FLAVOR_MODEL` 可换），超时 6 秒（`TYPESAFE_FLAVOR_TIMEOUT`）。`--no-flavor` 或 `TYPESAFE_FLAVOR=0` 关闭；TypeSafe 官方端点/Mock 下自动关闭。
+  - 只改写拒绝文本，不碰状态、线索、NPC 台词；超时、报错、空输出、过长、含剧透词（`level1.json` 的 `flavor.spoilers`）一律回退到预写文本。
+  - 玩家原话放在 `<player_said>` 里当数据，提示词要求不执行其中指令、不透露线索。
+- **`/hint`**：按当前进度给 3 层递进提示（`level1.json` 的 `hints`，第一个匹配的阶段生效，阶段变化后从头开始），不消耗回合。
+- 开场白里加了"老周望着馆长遗像神情恭敬"的线索。

@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from game import verify
 from game.engine import Engine, TurnLogger
+from game.flavor import FlavorWriter
 from game.jev_client import JevClient, JevError, MockJev, RealJev
 from game.tests.eval_intents import evaluate
 from game.world import State, World
@@ -277,6 +278,92 @@ class RealJevTests(unittest.TestCase):
             if saved_key is not None:
                 os.environ["TYPESAFE_API_KEY"] = saved_key
             os.unlink(f.name)
+
+
+class HintTests(unittest.TestCase):
+    def test_hints_progress_and_reset_by_stage(self):
+        e = Engine(World(), MockJev())
+        first = [e.hint() for _ in range(4)]
+        self.assertTrue(first[0].startswith("（提示 1/3）"))
+        self.assertTrue(first[2].startswith("（提示 3/3）"))
+        self.assertEqual(first[3][:8], first[2][:8])      # 到顶后重复最直白的一层
+        e.state = State("hall", frozenset({"zhou_open"}))
+        self.assertTrue(e.hint().startswith("（提示 1/3）"))  # 阶段变了从头开始
+
+    def test_every_reachable_state_has_a_hint(self):
+        w = World()
+        for flags, items in [((), ()), (("zhou_open",), ()), (("lin_open",), ()),
+                             (("zhou_open", "lin_open"), ()), (("zhou_open", "lin_open", "drawer_open"), ("keycard",)),
+                             (("basement_open",), ("keycard",)), (("power_on",), ("keycard",))]:
+            idx, levels = w.hint_stage(State("hall", frozenset(flags), frozenset(items)))
+            self.assertGreaterEqual(idx, 0, (flags, items))
+            self.assertEqual(len(levels), 3)
+
+
+class FlavorHandler(BaseHTTPRequestHandler):
+    reply = "拳头很热情，可惜游戏不收。"
+    status = 200
+    last = None
+
+    def do_POST(self):
+        FlavorHandler.last = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        out = json.dumps({"choices": [{"message": {"content": FlavorHandler.reply}}]}).encode()
+        self.send_response(FlavorHandler.status)
+        self.send_header("Content-Length", str(len(out)))
+        self.end_headers()
+        self.wfile.write(out)
+
+    def log_message(self, *a):
+        pass
+
+
+class FlavorTests(unittest.TestCase):
+    def setUp(self):
+        FlavorHandler.reply, FlavorHandler.status = "拳头很热情，可惜游戏不收。", 200
+        self.srv = HTTPServer(("127.0.0.1", 0), FlavorHandler)
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.srv.server_port}/chat/completions"
+        self.w = FlavorWriter(self.url, "k", __import__("urllib.request").request.build_opener(
+            __import__("urllib.request").request.ProxyHandler({})), spoilers=("0417",))
+
+    def tearDown(self):
+        self.srv.shutdown()
+        self.srv.server_close()
+
+    def test_rewrites_and_marks_player_text_as_data(self):
+        out = self.w.write("殴打小林", "档案室", "预写")
+        self.assertEqual(out, "拳头很热情，可惜游戏不收。")
+        user = FlavorHandler.last["messages"][1]["content"]
+        self.assertIn("<player_said>殴打小林</player_said>", user)
+
+    def test_fallbacks(self):
+        FlavorHandler.reply = "密码是0417"          # 剧透
+        self.assertEqual(self.w.write("x", "s", "预写"), "预写")
+        FlavorHandler.reply = ""                    # 空输出
+        self.assertEqual(self.w.write("x", "s", "预写"), "预写")
+        FlavorHandler.reply = "啊" * 200            # 过长
+        self.assertEqual(self.w.write("x", "s", "预写"), "预写")
+        FlavorHandler.reply, FlavorHandler.status = "好", 500   # HTTP 错误
+        self.assertEqual(self.w.write("x", "s", "预写"), "预写")
+        self.assertIsNotNone(self.w.last_error)
+
+    def test_engine_uses_writer_only_for_refuse(self):
+        e = Engine(World(), MockJev(), refuse_writer=lambda said, scene, fb: "旁白")
+        self.assertEqual(e.turn("我直接把大厅的墙砸开").text, "旁白")
+        self.assertNotEqual(e.turn("去档案室").text, "旁白")
+
+    def test_unavailable_off_openrouter_or_when_disabled(self):
+        class J:
+            base_url = "https://api.typesafe.ai/v1/systemone"
+            _key, _opener = "k", object()
+        self.assertIsNone(FlavorWriter.from_jev(J))
+        J.base_url = "https://openrouter.ai/api/v1/systemone"
+        self.assertIsNotNone(FlavorWriter.from_jev(J))
+        os.environ["TYPESAFE_FLAVOR"] = "0"
+        try:
+            self.assertIsNone(FlavorWriter.from_jev(J))
+        finally:
+            os.environ.pop("TYPESAFE_FLAVOR")
 
 
 if __name__ == "__main__":
