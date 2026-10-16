@@ -13,6 +13,9 @@ echo Waiting for the game server...
 timeout /t 4 >nul
 curl -s -o nul -m 5 http://127.0.0.1:8000/ || (echo. & echo [!] The game server is NOT answering on http://127.0.0.1:8000 . Check the "twelve server" window for errors. & echo.)
 set PATH=%~dp0;%PATH%
+rem If you see "failed to request quick Tunnel ... context deadline exceeded", cloudflared cannot reach Cloudflare directly.
+rem cloudflared ignores the Windows system proxy; remove "rem" below to send it through Clash (or turn on Clash TUN mode).
+rem set HTTPS_PROXY=http://127.0.0.1:7890
 rem http2 over TCP is more reliable than the default QUIC/UDP on many networks and behind local proxies.
 cloudflared tunnel --protocol http2 --url http://127.0.0.1:8000
 pause
