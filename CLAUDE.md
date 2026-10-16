@@ -223,6 +223,7 @@ python -m game.cli                 # 有 TYPESAFE_API_KEY 用真实 Jev，否则
 python -m game.cli --debug         # 打印每次 Jev 请求与返回
 python -m game.verify              # 离线验证器
 python -m game.tests.eval_intents --jev mock|real   # 意图映射准确率
+python -m game.tests.eval_reactions --jev mock|real   # NPC 反应（线索是否解锁）准确率
 python -m unittest discover -s game/tests -t .      # 单元测试
 ```
 
@@ -240,4 +241,5 @@ TYPESAFE_MODEL=jev-latest        # 映射到 ~typesafe/jev-latest（当前 Jev 1
 
 - 用云环境的"网络密钥"（Bearer，允许 `openrouter.ai`，路径前缀 `/api/v1/`）时，key 由代理在请求发出时附加，本地只需给 `TYPESAFE_API_KEY` 填任意占位值。
 - 已验证：经 OpenRouter 的 `jev-latest` 跑 `eval_intents --jev real` 为 26/26（与 Mock 一致；曾有"今天天气真不错"误判为 talk_zhou，已收紧 talk_zhou 的 hint）。
-- 下一步：用真实 Jev 整局通关，把低置信度/选错的输入补进规则和 `tests/intents.jsonl`。
+- 已验证：真实 Jev 整局通关（调整 NPC 描述与反应 hint 后）；`eval_reactions --jev real` 为 19/19（11 句该解锁、8 句该守住，含威胁/辱骂）。Mock 为 17/19，漏掉不含"敬/尊"等关键词的委婉说法，属 Mock 局限。
+- 下一步：继续收集真实玩家说法，补进 `tests/intents.jsonl` 和 `tests/reactions.jsonl`。
