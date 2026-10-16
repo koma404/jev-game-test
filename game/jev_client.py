@@ -31,8 +31,8 @@ class JevClient:
 
 # --------------------------------------------------------------------------- Real
 def _read_key_file(path: str) -> str:
-    mode = os.stat(path).st_mode
-    if mode & (stat.S_IRWXG | stat.S_IRWXO):
+    # Windows 没有 POSIX 权限位，st_mode 恒为 0o666，跳过检查
+    if os.name != "nt" and os.stat(path).st_mode & (stat.S_IRWXG | stat.S_IRWXO):
         raise JevError(f"key 文件 {path} 权限过宽，请 chmod 600")
     with open(path, encoding="utf-8") as f:
         return f.read().strip()
