@@ -90,11 +90,18 @@ class JevClient:
 
 # --------------------------------------------------------------------------- Real
 def _read_key_file(path: str) -> str:
+    if not os.path.isfile(path):
+        raise JevError(f"找不到 key 文件：{path}\n"
+                       f"  请在这个位置新建一个文本文件，里面只写一行 OpenRouter key（key.txt 不会进仓库，换台机器要重新放）。\n"
+                       f"  没有 key 也能先用离线模拟模式试玩：双击 play_twelve_mock.bat。")
     # Windows 没有 POSIX 权限位，st_mode 恒为 0o666，跳过检查
     if os.name != "nt" and os.stat(path).st_mode & (stat.S_IRWXG | stat.S_IRWXO):
         raise JevError(f"key 文件 {path} 权限过宽，请 chmod 600")
-    with open(path, encoding="utf-8") as f:
-        return f.read().strip()
+    with open(path, encoding="utf-8-sig") as f:   # 记事本另存为 UTF-8 时会带 BOM
+        key = f.read().strip()
+    if not key:
+        raise JevError(f"key 文件是空的：{path}，请在里面写一行 OpenRouter key。")
+    return key
 
 
 class RealJev(JevClient):
