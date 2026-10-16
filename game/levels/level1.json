@@ -1,0 +1,198 @@
+{
+  "title": "停电的档案馆",
+  "start": {"room": "hall", "flags": [], "items": []},
+  "goal_flag": "exited",
+  "config": {
+    "low_conf_threshold": 0.6,
+    "noul_threshold": 0.5,
+    "attitude_levels": ["冒犯", "中性", "友善", "明确表达敬意"],
+    "score_to_trust": [-1, 0, 1, 2],
+    "trust_min": -3,
+    "trust_max": 5,
+    "code_regex": "(?<!\\d)\\d{4}(?!\\d)"
+  },
+  "intro": "你被困在停电的档案馆里。大厅的电动卷帘门断了电，打不开。老周坐在值班台后，打着哈欠。想办法出去吧。",
+  "texts": {
+    "clarify_two": "你是想{a}，还是想{b}？",
+    "clarify_one": "你指的是哪个？是想{a}，还是别的什么？",
+    "clarify_none": "我没太明白你想做什么，可以说得更具体一些吗？",
+    "refuse_default": "这个办法行不通。换个办法吧。",
+    "confirm": "你是想现在就离开这里吗？",
+    "jev_down": "（Jev 暂时没有响应，这一回合没有消耗，请再试一次。）"
+  },
+  "rooms": {
+    "hall": {
+      "name": "大厅",
+      "desc": "应急灯在头顶闪着微光。值班台后坐着守卫老周；西侧通往档案室，楼梯下面是机房，门锁着；正前方是电动卷帘门，目前断电。",
+      "extras": [
+        {"flag": "basement_open", "text": "机房的门已经被刷开了。"},
+        {"flag": "power_on", "text": "卷帘门的指示灯亮了，电机嗡嗡作响。"}
+      ],
+      "refuse": "老周抬眼看了你一下：“别乱来。”换个办法吧。"
+    },
+    "archive": {
+      "name": "档案室",
+      "desc": "一排排铁架，空气里有纸张的味道。角落里有一个带数字密码锁的抽屉，管理员小林在整理文件。",
+      "extras": [
+        {"flag": "drawer_open", "text": "抽屉已经敞开了。"}
+      ],
+      "refuse": "抽屉看起来很结实，而且小林就在旁边盯着你。换个办法吧。"
+    },
+    "basement": {
+      "name": "机房",
+      "desc": "机房里一片漆黑，只有墙上那个粗大的总闸拉杆在应急灯下泛着冷光。",
+      "extras": [
+        {"flag": "power_on", "text": "总闸已经合上，设备开始运转。"}
+      ],
+      "refuse": "机房里嗡嗡作响，别在这里乱来。换个办法吧。"
+    }
+  },
+  "rules": [
+    {
+      "id": "go_archive",
+      "label": "去档案室",
+      "needs": {"room": "hall"},
+      "effects": {"set_room": "archive"},
+      "text": "你走进了档案室。",
+      "hint_for_jev": "玩家想去档案室"
+    },
+    {
+      "id": "go_hall",
+      "label": "回大厅",
+      "needs": {"room_in": ["archive", "basement"]},
+      "effects": {"set_room": "hall"},
+      "text": "你回到了大厅。",
+      "hint_for_jev": "玩家想回到大厅"
+    },
+    {
+      "id": "go_basement",
+      "label": "下到机房",
+      "needs": {"room": "hall", "flags": ["basement_open"]},
+      "effects": {"set_room": "basement"},
+      "text": "你推开机房的门，走下台阶。",
+      "hint_for_jev": "玩家想进入机房或下楼"
+    },
+    {
+      "id": "use_keycard",
+      "label": "用门禁卡刷开机房门",
+      "needs": {"room": "hall", "items": ["keycard"], "flags_absent": ["basement_open"]},
+      "effects": {"set_flags": ["basement_open"]},
+      "text": "“嘀”的一声，机房的门锁松开了。",
+      "hint_for_jev": "玩家想用门禁卡刷开机房的门"
+    },
+    {
+      "id": "examine_shutter",
+      "label": "查看卷帘门",
+      "needs": {"room": "hall", "flags_absent": ["power_on"]},
+      "effects": {},
+      "text": "卷帘门纹丝不动，控制面板一片漆黑。看来得先恢复供电。",
+      "hint_for_jev": "玩家想查看、检查或尝试推拉卷帘门"
+    },
+    {
+      "id": "talk_zhou",
+      "label": "和老周说话",
+      "npc": "zhou",
+      "needs": {"room": "hall"},
+      "effects": {},
+      "text": null,
+      "hint_for_jev": "玩家想和守卫老周说话、搭话或向他打听事情"
+    },
+    {
+      "id": "talk_lin",
+      "label": "和小林说话",
+      "npc": "lin",
+      "needs": {"room": "archive"},
+      "effects": {},
+      "text": null,
+      "hint_for_jev": "玩家想和管理员小林说话、搭话或向她打听事情"
+    },
+    {
+      "id": "open_drawer",
+      "label": "输入密码打开抽屉",
+      "needs": {"room": "archive", "flags_absent": ["drawer_open"], "flags": ["zhou_open", "lin_open"], "has_code": "0417"},
+      "effects": {"set_flags": ["drawer_open"], "add_items": ["keycard"]},
+      "text": "抽屉弹开，里面躺着一张蓝色门禁卡。",
+      "hint_for_jev": "玩家尝试输入密码打开档案室抽屉"
+    },
+    {
+      "id": "wrong_code",
+      "label": "输入密码",
+      "needs": {"room": "archive", "flags_absent": ["drawer_open"], "code_wrong": true},
+      "effects": {},
+      "text": "密码锁“滴滴”响了两声，红灯亮起。密码不对。",
+      "hint_for_jev": "玩家尝试输入一个错误的密码"
+    },
+    {
+      "id": "pull_switch",
+      "label": "拉总闸",
+      "needs": {"room": "basement", "flags_absent": ["power_on"]},
+      "effects": {"set_flags": ["power_on"]},
+      "text": "你用力拉下总闸，远处传来电机启动的轰鸣——卷帘门通电了。",
+      "hint_for_jev": "玩家想拉动机房里的总闸、电闸或恢复供电"
+    },
+    {
+      "id": "exit",
+      "label": "离开档案馆",
+      "needs": {"room": "hall", "flags": ["power_on"]},
+      "effects": {"set_flags": ["exited"]},
+      "confirm": "玩家是否明确表示要现在就离开档案馆（走出大门）？",
+      "text": "卷帘门缓缓升起，晨光涌了进来。你走出了档案馆。——通关！",
+      "hint_for_jev": "玩家想从卷帘门离开档案馆"
+    }
+  ],
+  "npcs": {
+    "zhou": {
+      "name": "老周",
+      "desc": "老周（守卫），敬重已故的老馆长，对不熟的人爱答不理",
+      "room": "hall",
+      "behaviors": [
+        {
+          "id": "zhou_deflect", "label": "搪塞", "min_trust": -99,
+          "hint_for_jev": "老周敷衍搪塞，不愿多说",
+          "text": "老周瞥了你一眼：“配电的事归机房管，别问我。”"
+        },
+        {
+          "id": "zhou_complain", "label": "抱怨停电", "min_trust": -99,
+          "hint_for_jev": "老周顺着话头抱怨停电和工作的辛苦",
+          "text": "老周叹了口气：“停电停了一晚上，这破值班室冷得很……”"
+        },
+        {
+          "id": "zhou_reminisce", "label": "感慨回忆", "min_trust": 2,
+          "hint_for_jev": "老周被触动，感慨地回忆起老馆长，并透露馆长的生日",
+          "text": "老周的神情软了下来：“馆长啊……他生日四月十七，每年都带蛋糕来值班室。”",
+          "effects": {"set_flags": ["zhou_open"]},
+          "clue": "馆长生日: 0417"
+        },
+        {
+          "id": "zhou_drive_away", "label": "赶人", "min_trust": -99,
+          "hint_for_jev": "老周被冒犯，不耐烦地赶玩家走",
+          "text": "老周皱起眉头：“去去去，别在这儿碍事。”"
+        }
+      ]
+    },
+    "lin": {
+      "name": "小林",
+      "desc": "小林（档案室管理员），警惕心强，熟悉了才肯说话",
+      "room": "archive",
+      "behaviors": [
+        {
+          "id": "lin_probe", "label": "追问来意", "min_trust": -99,
+          "hint_for_jev": "小林保持戒心，追问玩家是谁、为什么打听",
+          "text": "小林警觉地问：“你是谁？为什么打听这个？”"
+        },
+        {
+          "id": "lin_confirm", "label": "确认", "min_trust": 2,
+          "hint_for_jev": "小林确认抽屉密码的事，说出密码就是馆长的生日",
+          "text": "小林压低声音：“……抽屉的密码，就是馆长的生日。”",
+          "effects": {"set_flags": ["lin_open"]},
+          "clue": "抽屉密码 = 馆长的生日"
+        },
+        {
+          "id": "lin_refuse", "label": "拒绝", "min_trust": -99,
+          "hint_for_jev": "小林明确拒绝回答，或者让玩家离开",
+          "text": "小林板起脸：“这不是你该问的。”"
+        }
+      ]
+    }
+  }
+}

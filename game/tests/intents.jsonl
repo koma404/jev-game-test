@@ -1,0 +1,26 @@
+{"state": {"room": "hall", "flags": [], "items": []}, "text": "我想跟守卫聊聊，顺便问问这里怎么停电了", "expect": "talk_zhou"}
+{"state": {"room": "hall", "flags": [], "items": []}, "text": "我是来查老馆长留下的资料的，他是个很受人尊敬的人", "expect": "talk_zhou"}
+{"state": {"room": "hall", "flags": [], "items": []}, "text": "老周，你好", "expect": "talk_zhou"}
+{"state": {"room": "hall", "flags": [], "items": []}, "text": "我想去档案室看看", "expect": "go_archive"}
+{"state": {"room": "hall", "flags": [], "items": []}, "text": "先去档案室，然后找小林聊聊", "expect": "go_archive"}
+{"state": {"room": "hall", "flags": [], "items": []}, "text": "那个东西能打开吗", "expect": "clarify"}
+{"state": {"room": "hall", "flags": [], "items": []}, "text": "这个怎么弄", "expect": "clarify"}
+{"state": {"room": "hall", "flags": [], "items": []}, "text": "检查一下卷帘门", "expect": "examine_shutter"}
+{"state": {"room": "hall", "flags": [], "items": []}, "text": "今天天气真不错", "expect": "none"}
+{"state": {"room": "hall", "flags": [], "items": []}, "text": "我直接撬开机房的门", "expect": "none"}
+{"state": {"room": "archive", "flags": [], "items": []}, "text": "你好，我想问下抽屉的密码，是馆长的生日吧？", "expect": "talk_lin"}
+{"state": {"room": "archive", "flags": [], "items": []}, "text": "小林，你在忙什么呢", "expect": "talk_lin"}
+{"state": {"room": "archive", "flags": [], "items": []}, "text": "我直接把抽屉砸开吧", "expect": "none"}
+{"state": {"room": "archive", "flags": [], "items": []}, "text": "回大厅去", "expect": "go_hall"}
+{"state": {"room": "archive", "flags": ["zhou_open", "lin_open"], "items": []}, "text": "输入密码0417", "expect": "open_drawer"}
+{"state": {"room": "archive", "flags": ["zhou_open", "lin_open"], "items": []}, "text": "我试试 0417 这个密码", "expect": "open_drawer"}
+{"state": {"room": "archive", "flags": ["zhou_open", "lin_open"], "items": []}, "text": "输入 1234", "expect": "wrong_code"}
+{"state": {"room": "archive", "flags": [], "items": []}, "text": "输入 1234", "expect": "wrong_code"}
+{"state": {"room": "hall", "flags": ["zhou_open", "lin_open", "drawer_open"], "items": ["keycard"]}, "text": "用门禁卡刷一下机房的门", "expect": "use_keycard"}
+{"state": {"room": "hall", "flags": ["zhou_open", "lin_open", "drawer_open"], "items": ["keycard"]}, "text": "刷卡", "expect": "use_keycard"}
+{"state": {"room": "hall", "flags": ["basement_open"], "items": ["keycard"]}, "text": "下楼去机房", "expect": "go_basement"}
+{"state": {"room": "basement", "flags": ["basement_open"], "items": ["keycard"]}, "text": "拉下总闸", "expect": "pull_switch"}
+{"state": {"room": "basement", "flags": ["basement_open"], "items": ["keycard"]}, "text": "把电闸合上", "expect": "pull_switch"}
+{"state": {"room": "basement", "flags": ["basement_open"], "items": ["keycard"]}, "text": "回大厅", "expect": "go_hall"}
+{"state": {"room": "hall", "flags": ["basement_open", "power_on"], "items": ["keycard"]}, "text": "我要从卷帘门离开这里", "expect": "exit"}
+{"state": {"room": "hall", "flags": ["basement_open", "power_on"], "items": ["keycard"]}, "text": "走，出去吧", "expect": "exit"}

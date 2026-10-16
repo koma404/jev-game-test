@@ -215,3 +215,15 @@ game/
 - 剧情文本全部预写在 `level1.json`，保证叙事可控；以后想接小模型润色，留一个可选钩子即可。
 - 不要为了让 Jev 更"聪明"而放宽选项集合；选项集合小而准，是这个设计稳定的前提。
 - 可选的后续：网页界面、把每回合的置信度画成曲线作为展示。
+
+## 10. 运行方式（已实现）
+
+```
+python -m game.cli                 # 有 TYPESAFE_API_KEY 用真实 Jev，否则 MockJev；--jev mock|real 强制指定
+python -m game.cli --debug         # 打印每次 Jev 请求与返回
+python -m game.verify              # 离线验证器
+python -m game.tests.eval_intents --jev mock|real   # 意图映射准确率
+python -m unittest discover -s game/tests -t .      # 单元测试
+```
+
+接入真实 Jev：设置 `TYPESAFE_API_KEY`（或权限 600 的 `TYPESAFE_KEY_FILE`），可选 `TYPESAFE_BASE_URL`、`TYPESAFE_MODEL`（用 DigitalOcean 等兼容端点时改这两个）。日志默认写入 `game/logs/`（`turns.jsonl` 全量，`low_conf.jsonl` 为反问/落到 none 的输入）。
