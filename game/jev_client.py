@@ -11,6 +11,7 @@ import random
 import re
 import stat
 import time
+import http.client
 import urllib.error
 import urllib.request
 
@@ -47,7 +48,7 @@ class RealJev(JevClient):
     RETRY_STATUS = {429, 500, 502, 503, 504, 529}
 
     def __init__(self, api_key=None, base_url=None, model=None, timeout=None,
-                 max_retries=None, backoff=1.0, sleep=time.sleep):
+                 max_retries=None, backoff=1.0, sleep=time.sleep, on_retry=None):
         env = os.environ
         key = api_key or env.get("TYPESAFE_API_KEY")
         if not key and env.get("TYPESAFE_KEY_FILE"):
@@ -57,10 +58,11 @@ class RealJev(JevClient):
         self._key = key
         self.base_url = base_url or env.get("TYPESAFE_BASE_URL", DEFAULT_BASE_URL)
         self.model = model or env.get("TYPESAFE_MODEL", DEFAULT_MODEL)
-        self.timeout = float(timeout or env.get("TYPESAFE_TIMEOUT", 20))
-        self.max_retries = int(max_retries if max_retries is not None else env.get("TYPESAFE_MAX_RETRIES", 4))
+        self.timeout = float(timeout or env.get("TYPESAFE_TIMEOUT", 15))
+        self.max_retries = int(max_retries if max_retries is not None else env.get("TYPESAFE_MAX_RETRIES", 2))
         self.backoff = backoff
         self._sleep = sleep
+        self.on_retry = on_retry  # (第几次重试, 总重试数, 错误) 回调，CLI 用来提示用户
 
     @staticmethod
     def available() -> bool:
@@ -83,9 +85,13 @@ class RealJev(JevClient):
                 last = JevError(f"HTTP {e.code}: {detail}")
                 if e.code not in self.RETRY_STATUS:  # 400/401/413/422：重试没有意义
                     raise last from None
-            except (urllib.error.URLError, TimeoutError, ConnectionError, json.JSONDecodeError) as e:
-                last = JevError(f"请求失败: {e}")
+            except (OSError, http.client.HTTPException, json.JSONDecodeError) as e:
+                # OSError 涵盖 URLError / ConnectionError / ssl 错误 / socket.timeout
+                # （3.8 里 socket.timeout 不是 TimeoutError，必须按 OSError 捕获）
+                last = JevError(f"请求失败: {type(e).__name__}: {e}")
             if attempt < self.max_retries:
+                if self.on_retry:
+                    self.on_retry(attempt + 1, self.max_retries, last)
                 self._sleep(self.backoff * 2 ** attempt + random.uniform(0, 0.25))
         raise last
 

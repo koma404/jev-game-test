@@ -44,6 +44,9 @@ def main(argv=None) -> int:
         print(f"无法启用真实 Jev: {e}", file=sys.stderr)
         return 2
 
+    if isinstance(jev, RealJev):
+        jev.on_retry = lambda n, total, err: print(f"  （Jev 连接失败，{n}/{total} 次重试中：{err}）", flush=True)
+
     def show(req, resp):
         print(_dim("--- Jev 请求 ---\n" + json.dumps(req, ensure_ascii=False, indent=2) +
                    "\n--- Jev 返回 ---\n" + json.dumps(resp, ensure_ascii=False, indent=2)))
@@ -75,8 +78,12 @@ def main(argv=None) -> int:
         elif line == "/clues":
             print("线索: " + ("; ".join(eng.clues) or "无"))
         else:
+            if isinstance(jev, RealJev):
+                print("  （等待 Jev 回应……）", flush=True)
             res = eng.turn(line)
             print(res.text)
+            if res.kind == "jev_down":
+                print(_dim(f"原因: {res.info.get('error')}"))
             if res.clue:
                 print(f"获得线索 [{res.clue}]")
             if args.debug:
