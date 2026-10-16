@@ -146,6 +146,8 @@ Jev 不开源，只能用托管 API。社区有接口兼容的开源 System One 
 3. 分享 `https://xxxx.trycloudflare.com/?code=口令`。
 - 地址每次运行都变；最多 200 个并发请求；无可用性保证；大陆访问 Cloudflare 有时慢或不稳，先让朋友试。
 - 玩家真实 IP 从 `CF-Connecting-IP` / `X-Forwarded-For` 取（隧道从本机连进来）。
+- 启动脚本先确认本机服务能访问再开隧道；隧道用 `--protocol http2`（TCP，比默认的 QUIC/UDP 更容易穿过限制多的网络和本地代理）、指向 `127.0.0.1`（避免 `localhost` 被解析成 IPv6 而连不上只监听 IPv4 的服务）。
+- 打不开时按顺序排查：本机 `http://127.0.0.1:8000` 能否打开（服务）→ 隧道窗口地址是否为本次新地址、有无反复报错（隧道）→ 浏览器是 Cloudflare 502/1033（隧道连不到本机服务）还是根本连不上（网络访问 Cloudflare 不通）。
 
 **B. Render 免费版（地址固定、电脑可关机）**
 1. 用 GitHub 登录 Render → New → Blueprint → 选本仓库和分支，读取根目录 `render.yaml`。
