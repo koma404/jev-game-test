@@ -156,6 +156,12 @@ Jev 不开源，只能用托管 API。社区有接口兼容的开源 System One 
 - 闲置 15 分钟休眠，下次访问约 1 分钟唤醒；每月 750 小时免费；磁盘不保留——**每日花费记录在休眠/重启后清零**，所以 OpenRouter 的额度上限更重要。
 - 在平台负载均衡后面，`TWELVE_TRUST_PROXY=1` 让服务端从 `X-Forwarded-For` 取真实 IP；端口读环境变量 `PORT`。
 
+**C. 香港 / 日本 VPS（最终选择：国内访问稳、地址固定、电脑可关机）**
+- 见 `deploy/README.md`：`scp` 把项目传上去 → `bash deploy/install.sh`（问 key、口令、每日上限、端口）→ 发 `http://IP/?code=口令`。
+- 安装脚本：代码放 `/opt/twelve`，设置在 `/etc/twelve/env`（600），systemd 服务 `twelve` 以低权限用户运行、开机自启、崩溃重启，
+  只能写 `/var/lib/twelve`（日志和每日花费记录，重启不清零）；`--update` 只换代码不动设置。
+- 实测（沙箱里用替身 systemctl）：安装/更新流程、以 `twelve` 用户运行、口令拦截、开庭说话、日志写入都正常；真实 VPS 上未测。
+
 ## 10. 下一步
 
 1. 在 Win7 机器上实际玩一局，看输入法下的手感，决定预览停顿时间（延迟已测，约 0.4 s）。
