@@ -16,10 +16,11 @@ header{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:1
 h1{font-size:22px;margin:0;color:var(--accent)}
 .stat{font-size:15px;color:var(--dim)} .stat b{color:var(--fg);font-size:20px}
 #timer.low b{color:var(--down)}
-#ms{margin-left:auto;font-size:12px;color:var(--dim)}
-#grid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
-@media (max-width:760px){#grid{grid-template-columns:repeat(4,1fr)}}
-@media (max-width:480px){#grid{grid-template-columns:repeat(3,1fr)}}
+#ms{margin-left:auto;font-size:12px;color:#888} #ms.err{color:#c0392b}
+#grid{display:flex;flex-wrap:wrap;margin:-4px}
+#grid .j{width:calc(16.666% - 8px);margin:4px}
+@media (max-width:760px){#grid .j{width:calc(25% - 8px)}}
+@media (max-width:480px){#grid .j{width:calc(33.333% - 8px)}}
 .j{background:var(--card);border:2px solid var(--line);border-radius:10px;padding:8px 6px;text-align:center;transition:border-color .3s,box-shadow .3s}
 .j.acq{border-color:var(--acq)}
 .j.flash-up{box-shadow:0 0 0 3px var(--up)} .j.flash-down{box-shadow:0 0 0 3px var(--down)}
@@ -28,8 +29,9 @@ h1{font-size:22px;margin:0;color:var(--accent)}
 .bar{height:6px;background:var(--line);border-radius:3px;margin-top:6px;position:relative;overflow:hidden}
 .bar i{position:absolute;top:0;bottom:0;background:var(--gui)} .bar .mid{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--dim)}
 .j.acq .bar i{background:var(--acq)}
-#main{display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-top:12px}
-@media (max-width:760px){#main{grid-template-columns:1fr}}
+#main{display:flex;margin-top:12px}
+#main>.panel:first-child{flex:2;margin-right:12px} #main>.panel:last-child{flex:1}
+@media (max-width:760px){#main{display:block} #main>.panel:first-child{margin:0 0 12px}}
 .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
 #log{height:260px;overflow-y:auto}
 .l{margin:4px 0;white-space:pre-wrap;word-break:break-word}
@@ -92,8 +94,8 @@ button:disabled{opacity:.5;cursor:default}
   function face(m){
     var mouth = m>0 ? 'M17 39 Q28 49 39 39' : (m<0 ? 'M17 44 Q28 35 39 44' : 'M18 41 L38 41');
     var brows = m<0 ? '<path d="M15 19 L24 22 M41 19 L32 22" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>' : '';
-    var col = m>0 ? 'var(--up)' : (m<0 ? 'var(--down)' : 'var(--ink)');
-    return '<svg viewBox="0 0 56 56" style="color:'+col+'"><circle cx="28" cy="28" r="25" fill="var(--face)"/>'+
+    var col = m>0 ? '#2f8f5b' : (m<0 ? '#c0392b' : '#3a2e22');
+    return '<svg viewBox="0 0 56 56" data-m="'+m+'" style="color:'+col+'"><circle cx="28" cy="28" r="25" fill="'+(m>0?'#cfe8c6':m<0?'#f3c9bd':'#f4d9a6')+'"/>'+
       '<circle cx="20" cy="26" r="3" fill="currentColor"/><circle cx="36" cy="26" r="3" fill="currentColor"/>'+brows+
       '<path d="'+mouth+'" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round"/></svg>';
   }
@@ -116,7 +118,18 @@ button:disabled{opacity:.5;cursor:default}
   }
 
   // ---- 预览：停顿后把草稿发过去，同时只保留一个在途请求，只认最新草稿 ----
-  function schedule(){ clearTimeout(dTimer); dTimer=setTimeout(preview, debounce); }
+  // 每 100ms 看一眼输入框：内容停止变化超过 debounce 就发预览。
+  // 不完全依赖输入法事件——有些输入法/浏览器不发 compositionend，那样会永远以为"还在拼音"。
+  var lastVal='', lastChange=0, lastComp=0;
+  function status(t, err){ $('ms').textContent=t; $('ms').className=err?'err':''; }
+  function poll(){
+    if(!started||over) return;
+    var v=$('in').value, now=new Date().getTime();
+    if(v!==lastVal){ lastVal=v; lastChange=now; }
+    if(composing && now-lastComp>1500) composing=false;     // 输入法事件卡住：1.5 秒没动静就当已上屏
+    if(!composing && now-lastChange>=debounce) preview();
+  }
+  function schedule(){}
   function preview(){
     if(!started||over) return;
     var text=$('in').value.replace(/^\s+|\s+$/g,'');
@@ -124,10 +137,12 @@ button:disabled{opacity:.5;cursor:default}
     if(text===lastSent) return;
     if(inflight){ pending=true; return; }
     inflight=true; lastSent=text; var my=++seq;
+    status('预览中…');
     post('/api/preview', {text:text}, function(s, r){
       inflight=false;
+      if(s!==200 || r.error){ status('预览出错：'+(r.error||('HTTP '+s)), true); lastSent=null; return; }
       if(s===200 && r.faces && my===seq) setFaces(r.faces);   // 落后一两个词没关系，读空气要的就是边打边看
-      if(r.ms) $('ms').textContent='Jev 往返 '+r.ms+' ms';
+      status(r.ms ? 'Jev 往返 '+r.ms+' ms' : '（太短，不预览）');
       if(r.over) return finish(r.verdict);
       if(pending){ pending=false; preview(); }
     });
@@ -173,7 +188,7 @@ button:disabled{opacity:.5;cursor:default}
   function begin(){
     post('/api/begin', {}, function(s, r){
       $('overlay').style.display='none'; started=true;
-      deadline=new Date().getTime()+r.time_left*1000; tick(); timerId=setInterval(tick, 250);
+      deadline=new Date().getTime()+r.time_left*1000; tick(); timerId=setInterval(tick, 250); setInterval(poll, 100);
       $('in').disabled=false; $('go').disabled=false; $('rest').disabled=false; $('in').placeholder='说服他们。停顿时看他们的脸，按回车说出口。'; $('in').focus();
     });
   }
@@ -181,11 +196,11 @@ button:disabled{opacity:.5;cursor:default}
   // ---- 输入法：拼音还没选字时不发 ----
   var inp=$('in');
   inp.setAttribute('maxlength', 100);
-  inp.addEventListener('compositionstart', function(){ composing=true; });
-  inp.addEventListener('compositionend', function(){ composing=false; schedule(); });
-  inp.addEventListener('input', function(){ if(!composing) schedule(); });
+  inp.addEventListener('compositionstart', function(){ composing=true; lastComp=new Date().getTime(); });
+  inp.addEventListener('compositionupdate', function(){ lastComp=new Date().getTime(); });
+  inp.addEventListener('compositionend', function(){ composing=false; });
   inp.addEventListener('keydown', function(e){
-    if(e.keyCode===13 && !composing && e.keyCode!==229 && !e.isComposing){ e.preventDefault(); say(); }
+    if(e.keyCode===13 && !e.isComposing){ e.preventDefault(); say(); }   // 输入法选字时的回车 keyCode 是 229，不会进这里
   });
   $('go').onclick=say; $('rest').onclick=function(){ if(confirm('确定结束陈词吗？')) rest(); };
 
