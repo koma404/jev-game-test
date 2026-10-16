@@ -50,6 +50,13 @@ def main():
         jev = RealJev(proxy=proxy, max_retries=0)
         for i in (1, 2, 3):
             step(f"Jev 请求 #{i}（{label}）", lambda: jev.ask({"t": "hi"}, q))
+        try:   # 《十二人》用的连接复用客户端：只有第一次付握手代价
+            from twelve.link import KeepAliveJev
+            ka = KeepAliveJev(proxy=proxy, max_retries=0)
+            for i in (1, 2, 3):
+                step(f"Jev 复用连接 #{i}（{label}）", lambda: ka.ask({"t": "hi"}, q))
+        except ImportError:
+            pass
         w = FlavorWriter.from_jev(jev)
         if w:
             def chat():

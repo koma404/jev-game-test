@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>十二人</title>
+<style>
+:root{--bg:#f3f1ec;--fg:#1f2328;--dim:#6b7076;--card:#fff;--line:#dcd8cf;--accent:#1f5f8b;
+  --up:#2f8f5b;--down:#b9473b;--face:#f4d9a6;--ink:#3a2e22;--acq:#2f8f5b;--gui:#9aa0a6}
+@media (prefers-color-scheme: dark){:root{--bg:#141619;--fg:#e7e7e7;--dim:#8d939a;--card:#1d2024;--line:#30353b;--accent:#6cb6e6;
+  --up:#55c486;--down:#e2766a;--face:#d8b57e;--ink:#2a2017;--acq:#55c486;--gui:#5b6168}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 "PingFang SC","Microsoft YaHei",sans-serif}
+#wrap{max-width:1040px;margin:0 auto;padding:16px}
+header{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:12px}
+h1{font-size:22px;margin:0;color:var(--accent)}
+.stat{font-size:15px;color:var(--dim)} .stat b{color:var(--fg);font-size:20px}
+#timer.low b{color:var(--down)}
+#ms{margin-left:auto;font-size:12px;color:var(--dim)}
+#grid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
+@media (max-width:760px){#grid{grid-template-columns:repeat(4,1fr)}}
+@media (max-width:480px){#grid{grid-template-columns:repeat(3,1fr)}}
+.j{background:var(--card);border:2px solid var(--line);border-radius:10px;padding:8px 6px;text-align:center;transition:border-color .3s,box-shadow .3s}
+.j.acq{border-color:var(--acq)}
+.j.flash-up{box-shadow:0 0 0 3px var(--up)} .j.flash-down{box-shadow:0 0 0 3px var(--down)}
+.j svg{width:56px;height:56px;display:block;margin:0 auto}
+.j .n{font-weight:bold;font-size:14px} .j .r{font-size:12px;color:var(--dim);line-height:1.3;min-height:2.6em}
+.bar{height:6px;background:var(--line);border-radius:3px;margin-top:6px;position:relative;overflow:hidden}
+.bar i{position:absolute;top:0;bottom:0;background:var(--gui)} .bar .mid{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--dim)}
+.j.acq .bar i{background:var(--acq)}
+#main{display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-top:12px}
+@media (max-width:760px){#main{grid-template-columns:1fr}}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+#log{height:260px;overflow-y:auto}
+.l{margin:4px 0;white-space:pre-wrap;word-break:break-word}
+.you{color:var(--accent);font-weight:bold} .you:before{content:"你："}
+.react{color:var(--fg);font-size:14px} .react.up:before{content:"▲ ";color:var(--up)} .react.down:before{content:"▼ ";color:var(--down)}
+.note{color:var(--dim);font-size:14px}
+#dossier ol{padding-left:20px;margin:6px 0} #dossier li{margin:4px 0;font-size:14px}
+#say{display:flex;gap:8px;margin-top:10px}
+#in{flex:1;font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
+button{font:inherit;padding:10px 16px;border:0;border-radius:8px;background:var(--accent);color:#fff;cursor:pointer}
+button.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
+button:disabled{opacity:.5;cursor:default}
+#count{font-size:12px;color:var(--dim);text-align:right}
+#overlay{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;padding:16px}
+#overlay .box{background:var(--card);color:var(--fg);max-width:620px;width:100%;max-height:90vh;overflow-y:auto;border-radius:12px;padding:20px 22px}
+#overlay h2{margin:0 0 8px;color:var(--accent)}
+.vr{display:flex;gap:8px;margin:6px 0;font-size:14px} .vr b{min-width:4.5em} .vr .a{color:var(--acq)} .vr .g{color:var(--dim)}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <header>
+    <h1 id="title">十二人</h1>
+    <span class="stat" id="timer">剩余 <b id="t">--:--</b></span>
+    <span class="stat">倾向无罪 <b id="votes">0</b> / 12，需要 <span id="need">7</span></span>
+    <span id="ms"></span>
+  </header>
+  <div id="grid"></div>
+  <div id="main">
+    <div class="panel">
+      <div id="log"></div>
+      <div id="say">
+        <input id="in" autocomplete="off" disabled placeholder="点「开始陈词」后，在这里说话。按回车说出口。">
+        <button id="go" disabled>说出口</button>
+      </div>
+      <div id="count"></div>
+    </div>
+    <div class="panel" id="dossier">
+      <b>案卷</b>
+      <ol id="facts"></ol>
+      <button id="rest" class="ghost" disabled>结束陈词，请陪审团裁决</button>
+    </div>
+  </div>
+</div>
+<div id="overlay"><div class="box" id="box"></div></div>
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  var C=null, jurors=[], leans={}, started=false, over=false, deadline=0, timerId=0;
+  var composing=false, inflight=false, pending=false, lastSent=null, debounce=300, dTimer=0, seq=0;
+
+  function post(path, body, cb){
+    var x=new XMLHttpRequest(); x.open('POST', path, true); x.setRequestHeader('Content-Type','application/json');
+    x.onreadystatechange=function(){ if(x.readyState!==4) return; var r=null; try{r=JSON.parse(x.responseText);}catch(e){} cb(x.status, r||{}); };
+    x.send(JSON.stringify(body||{}));
+  }
+  function log(cls, text){ var d=document.createElement('div'); d.className='l '+cls; d.textContent=text; $('log').appendChild(d); $('log').scrollTop=$('log').scrollHeight; }
+
+  // ---- 脸 ----
+  function face(m){
+    var mouth = m>0 ? 'M17 39 Q28 49 39 39' : (m<0 ? 'M17 44 Q28 35 39 44' : 'M18 41 L38 41');
+    var brows = m<0 ? '<path d="M15 19 L24 22 M41 19 L32 22" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>' : '';
+    var col = m>0 ? 'var(--up)' : (m<0 ? 'var(--down)' : 'var(--ink)');
+    return '<svg viewBox="0 0 56 56" style="color:'+col+'"><circle cx="28" cy="28" r="25" fill="var(--face)"/>'+
+      '<circle cx="20" cy="26" r="3" fill="currentColor"/><circle cx="36" cy="26" r="3" fill="currentColor"/>'+brows+
+      '<path d="'+mouth+'" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round"/></svg>';
+  }
+  function setFaces(f){ for(var i=0;i<jurors.length;i++){ var id=jurors[i].id; $('f_'+id).innerHTML=face(f&&f[id]||0); } }
+  function setLeans(L){
+    leans=L; var n=0;
+    for(var i=0;i<jurors.length;i++){
+      var id=jurors[i].id, v=L[id], card=$('j_'+id), bar=$('b_'+id);
+      if(v>0){ n++; card.className='j acq'; } else card.className='j';
+      var w=Math.min(50, Math.abs(v)/5*50);
+      bar.style.left = v>=0 ? '50%' : (50-w)+'%'; bar.style.width = w+'%';
+    }
+    $('votes').textContent=n;
+  }
+  function flash(reactions){
+    for(var i=0;i<reactions.length;i++){
+      (function(r){ var c=$('j_'+r.juror); c.className+=' flash-'+(r.dir>0?'up':'down');
+        setTimeout(function(){ setLeans(leans); }, 1500); })(reactions[i]);
+    }
+  }
+
+  // ---- 预览：停顿后把草稿发过去，同时只保留一个在途请求，只认最新草稿 ----
+  function schedule(){ clearTimeout(dTimer); dTimer=setTimeout(preview, debounce); }
+  function preview(){
+    if(!started||over) return;
+    var text=$('in').value.replace(/^\s+|\s+$/g,'');
+    $('count').textContent=text.length+' / '+C.max_chars;
+    if(text===lastSent) return;
+    if(inflight){ pending=true; return; }
+    inflight=true; lastSent=text; var my=++seq;
+    post('/api/preview', {text:text}, function(s, r){
+      inflight=false;
+      if(s===200 && r.faces && my===seq) setFaces(r.faces);   // 落后一两个词没关系，读空气要的就是边打边看
+      if(r.ms) $('ms').textContent='Jev 往返 '+r.ms+' ms';
+      if(r.over) return finish(r.verdict);
+      if(pending){ pending=false; preview(); }
+    });
+  }
+
+  function say(){
+    if(!started||over) return;
+    var text=$('in').value.replace(/^\s+|\s+$/g,''); if(!text) return;
+    $('in').value=''; $('count').textContent=''; lastSent=''; seq++;
+    $('go').disabled=true; log('you', text);
+    post('/api/say', {text:text}, function(s, r){
+      $('go').disabled=false; $('in').focus();
+      if(r.over) return finish(r.verdict);
+      if(r.error){ log('note', r.error); if(r.expired) location.reload(); return; }
+      setFaces(r.faces); setLeans(r.leans);
+      for(var i=0;i<r.reactions.length;i++) log('react '+(r.reactions[i].dir>0?'up':'down'), r.reactions[i].text);
+      for(var k=0;k<r.notes.length;k++) log('note', r.notes[k]);
+      flash(r.reactions);
+      if(r.ms) $('ms').textContent='Jev 往返 '+r.ms+' ms';
+    });
+  }
+
+  function tick(){
+    var left=Math.max(0, Math.round((deadline-new Date().getTime())/1000));
+    $('t').textContent=Math.floor(left/60)+':'+('0'+left%60).slice(-2);
+    $('timer').className = left<=30 ? 'stat low' : 'stat';
+    if(left<=0 && !over) rest();
+  }
+  function rest(){ if(over) return; post('/api/verdict', {}, function(s, r){ if(r.verdict) finish(r.verdict); }); }
+  function finish(v){
+    if(over) return; over=true; clearInterval(timerId);
+    $('in').disabled=true; $('go').disabled=true; $('rest').disabled=true;
+    var h='<h2>'+(v.acquit?'无罪':'有罪')+'（'+v.votes+' / 12 判无罪）</h2><p></p>';
+    for(var i=0;i<v.jurors.length;i++){ var j=v.jurors[i];
+      h+='<div class="vr"><b>'+esc(j.name)+'</b><span class="'+(j.acquit?'a':'g')+'">'+(j.acquit?'无罪':'有罪')+'</span><span>'+esc(j.line)+'</span></div>'; }
+    h+='<p style="margin-top:16px"><button id="again">再开一庭</button></p>';
+    $('box').innerHTML=h; $('box').getElementsByTagName('p')[0].textContent=v.text;
+    $('overlay').style.display='flex';
+    $('again').onclick=function(){ location.reload(); };
+  }
+  function esc(s){ var d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+  function begin(){
+    post('/api/begin', {}, function(s, r){
+      $('overlay').style.display='none'; started=true;
+      deadline=new Date().getTime()+r.time_left*1000; tick(); timerId=setInterval(tick, 250);
+      $('in').disabled=false; $('go').disabled=false; $('rest').disabled=false; $('in').placeholder='说服他们。停顿时看他们的脸，按回车说出口。'; $('in').focus();
+    });
+  }
+
+  // ---- 输入法：拼音还没选字时不发 ----
+  var inp=$('in');
+  inp.setAttribute('maxlength', 100);
+  inp.addEventListener('compositionstart', function(){ composing=true; });
+  inp.addEventListener('compositionend', function(){ composing=false; schedule(); });
+  inp.addEventListener('input', function(){ if(!composing) schedule(); });
+  inp.addEventListener('keydown', function(e){
+    if(e.keyCode===13 && !composing && e.keyCode!==229 && !e.isComposing){ e.preventDefault(); say(); }
+  });
+  $('go').onclick=say; $('rest').onclick=function(){ if(confirm('确定结束陈词吗？')) rest(); };
+
+  post('/api/new', {}, function(s, r){
+    if(s!==200){ $('box').innerHTML='<h2>无法开庭</h2><p></p>'; $('box').getElementsByTagName('p')[0].textContent=r.error||('错误 '+s); $('overlay').style.display='flex'; return; }
+    C=r.case; jurors=C.jurors; debounce=C.debounce||300;
+    $('title').textContent=C.title; $('need').textContent=C.win_votes; inp.setAttribute('maxlength', C.max_chars);
+    var g='';
+    for(var i=0;i<jurors.length;i++){ var j=jurors[i];
+      g+='<div class="j" id="j_'+j.id+'"><div id="f_'+j.id+'"></div><div class="n">'+esc(j.name)+'</div><div class="r">'+esc(j.role)+'<br>'+esc(j.persona)+'</div><div class="bar"><span class="mid"></span><i id="b_'+j.id+'"></i></div></div>'; }
+    $('grid').innerHTML=g; setFaces({}); setLeans(r.leans);
+    var f=''; for(var k=0;k<C.dossier.length;k++) f+='<li>'+esc(C.dossier[k])+'</li>'; $('facts').innerHTML=f;
+    var m=Math.floor(C.time_limit/60);
+    $('t').textContent=m+':'+('0'+C.time_limit%60).slice(-2);
+    $('box').innerHTML='<h2>'+esc(C.title)+'</h2><p id="brief"></p><p class="note">打字时，陪审员的脸会随你的措辞实时变化；按回车，这句话才算说出口。每个人在意的东西不一样，读懂他们。时间一开始就不会停。</p><p><button id="start">开始陈词</button></p>';
+    $('brief').textContent=C.brief; $('overlay').style.display='flex'; $('start').onclick=begin;
+    if(r.backend==='mock') $('ms').textContent='（离线模拟模式）';
+  });
+})();
+</script>
+</body>
+</html>

@@ -3,3 +3,4 @@ __pycache__/
 game/logs/
 *.key
 key.txt
+twelve/logs/

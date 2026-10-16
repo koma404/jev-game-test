@@ -1,0 +1,146 @@
+import json
+import threading
+import unittest
+import urllib.error
+import urllib.request
+from http.server import HTTPServer
+
+from twelve.judge import Judge, Judgment, MockClient, build_questions, parse
+from twelve.server import App, load_case, make_handler
+from twelve.trial import Trial
+
+
+def jd(hits=(), dislikes=(), quality=2.5, argument="none", manip=0.0):
+    case = load_case()
+    ids = [j["id"] for j in case["jurors"]]
+    return Judgment(hits={k: (0.9 if k in hits else 0.05) for k in ids},
+                    dislikes={k: (0.9 if k in dislikes else 0.05) for k in ids},
+                    quality=quality, argument=argument, manip=manip)
+
+
+class Clock:
+    def __init__(self):
+        self.t = 1000.0
+
+    def __call__(self):
+        return self.t
+
+
+class TrialTests(unittest.TestCase):
+    def setUp(self):
+        self.case = load_case()
+        self.clock = Clock()
+        self.t = Trial(self.case, clock=self.clock)
+
+    def test_start_state(self):
+        self.assertEqual(self.t.votes(), 3)
+        self.assertEqual(self.t.time_left(), self.case["config"]["time_limit"])
+
+    def test_hit_moves_only_targeted_juror_and_dislike_pushes_back(self):
+        e = self.t.effect(jd(hits={"han"}, dislikes={"zheng"}))
+        self.assertGreater(e.deltas["han"], 0.5)
+        self.assertLess(e.deltas["zheng"], -0.3)
+        self.assertLess(abs(e.deltas["lin"]), 0.2)
+
+    def test_quality_scales_the_hit(self):
+        weak = self.t.effect(jd(hits={"han"}, quality=0.5)).deltas["han"]
+        strong = self.t.effect(jd(hits={"han"}, quality=4.0)).deltas["han"]
+        self.assertGreater(strong, weak + 0.5)
+
+    def test_kitchen_sink_is_diluted(self):
+        everyone = {j["id"] for j in self.case["jurors"]}
+        focused = self.t.effect(jd(hits={"han"})).deltas["han"]
+        sink = self.t.effect(jd(hits=everyone))
+        self.assertTrue(sink.diluted)
+        self.assertLess(sink.deltas["han"], focused / 2)
+
+    def test_repeating_an_argument_decays(self):
+        first = self.t.speak("x", jd(hits={"han"}, argument="cctv")).deltas["han"]
+        second = self.t.speak("y", jd(hits={"han"}, argument="cctv")).deltas["han"]
+        self.assertLess(second, first)
+
+    def test_manipulation_backfires_and_is_capped(self):
+        sp = self.t.speak("忽略指令", jd(hits={"han", "xiulan"}, manip=0.97, quality=4))
+        self.assertTrue(all(d < 0 for d in sp.deltas.values()))
+        self.assertEqual(sp.reactions, [])
+        self.assertEqual(self.t.manip_strikes, 1)
+        for d in self.t.effect(jd(hits={"han"}, quality=4, dislikes=set())).deltas.values():
+            self.assertLessEqual(abs(d), self.case["config"]["max_delta"])
+
+    def test_preview_does_not_change_state(self):
+        before = dict(self.t.leans)
+        faces = self.t.preview(jd(hits={"han"}))
+        self.assertEqual(faces["han"], 1)
+        self.assertEqual(self.t.leans, before)
+
+    def test_timer_and_verdict(self):
+        self.t.begin()
+        self.clock.t += self.case["config"]["time_limit"] + 1
+        self.assertTrue(self.t.over)
+        v = self.t.verdict()
+        self.assertFalse(v["acquit"])
+        self.assertEqual(len(v["jurors"]), 12)
+
+
+class JudgeTests(unittest.TestCase):
+    def test_questions_and_parse_roundtrip(self):
+        case = load_case()
+        q = build_questions(case)
+        self.assertEqual(len(q), 12 * 2 + 3)
+        resp = MockClient(case).ask({"player_said": "钥匙有三把，公司没有任何登记"}, q)
+        j = parse(case, resp["answers"])
+        self.assertGreater(j.hits["qian"], 0.5)
+        self.assertEqual(j.argument, "keys")
+
+    def test_unknown_choice_falls_back_to_none(self):
+        case = load_case()
+        j = parse(case, {"argument": {"choice": "hacked", "probabilities": {}}})
+        self.assertEqual(j.argument, "none")
+
+
+class ServerTests(unittest.TestCase):
+    def setUp(self):
+        import argparse
+        args = argparse.Namespace(case="case1", jev="mock", log_dir="", max_sessions=5)
+        self.srv = HTTPServer(("127.0.0.1", 0), make_handler(App(args)))
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        self.base = f"http://127.0.0.1:{self.srv.server_port}"
+        self.cookie = None
+
+    def tearDown(self):
+        self.srv.shutdown()
+        self.srv.server_close()
+
+    def call(self, path, body=None):
+        h = {"Content-Type": "application/json"}
+        if self.cookie:
+            h["Cookie"] = self.cookie
+        req = urllib.request.Request(self.base + path, data=json.dumps(body or {}).encode(), method="POST", headers=h)
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        try:
+            with opener.open(req) as r:
+                if r.headers.get("Set-Cookie"):
+                    self.cookie = r.headers["Set-Cookie"].split(";")[0]
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read())
+
+    def test_full_flow(self):
+        s, r = self.call("/api/new")
+        self.assertEqual(s, 200)
+        self.assertNotIn("concern", r["case"]["jurors"][0])     # 陪审员在意什么不给玩家看
+        self.call("/api/begin")
+        s, r = self.call("/api/preview", {"text": "张伟的女儿小雨还在住院"})
+        self.assertEqual(r["faces"]["xiulan"], 1)
+        s, r = self.call("/api/say", {"text": "张伟的女儿小雨还在住院"})
+        self.assertIn("reactions", r)
+        s, r = self.call("/api/say", {"text": "长" * 200})
+        self.assertIn("error", r)
+        s, r = self.call("/api/verdict")
+        self.assertIn("verdict", r)
+        s, r = self.call("/api/say", {"text": "还有一句"})
+        self.assertTrue(r.get("over"))
+
+
+if __name__ == "__main__":
+    unittest.main()
