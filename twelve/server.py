@@ -104,6 +104,14 @@ class App:
 
     # ---- 接口 ----
     def api(self, path, body, sid):
+        if path == "/api/client_error":   # 浏览器端报错：打印出来，方便排查各家浏览器的问题
+            msg = {k: str(body.get(k, ""))[:300] for k in ("msg", "line", "col", "ua")}
+            print(f"[浏览器报错] {msg['msg']} (第 {msg['line']} 行) {msg['ua']}", file=sys.stderr, flush=True)
+            if self.log_dir:
+                os.makedirs(self.log_dir, exist_ok=True)
+                with open(os.path.join(self.log_dir, "client_errors.jsonl"), "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"ts": round(time.time(), 3), **msg}, ensure_ascii=False) + "\n")
+            return 200, {}, sid
         if path == "/api/new":
             sid, c = self.court(sid, create=True)
             if c is None:
