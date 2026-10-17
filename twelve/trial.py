@@ -10,6 +10,7 @@
     专注系数：一句话戳中超过 focus_limit 人时按比例稀释（"什么都说等于什么都没说"）
     重复衰减：同一论点每多讲一次，乘一次 repeat_decay；讲到第 repeat_annoy+1 次起，所有人再 -repeat_penalty（听烦了）
     念案卷：戳中加成再乘 (1 - recite_cut * P(recite))——事实要说出它意味着什么才打动人
+    话没说完：说出口时戳中加成再乘 (1 - incomplete_cut * ramp(P))，基础分不为正；打字预览不计较（边打边看脸是核心玩法）
     操纵：P(manip) > manip_threshold 时这句话作废，所有人 -manip_backlash
 """
 from __future__ import annotations
@@ -26,6 +27,7 @@ class Effect:
     repeated: bool = False
     annoyed: bool = False
     recited: bool = False
+    cut_off: bool = False
     hit_ids: list = field(default_factory=list)
 
 
@@ -55,6 +57,7 @@ class Trial:
         self.hinted: dict = {}      # 陪审员 -> 已经提示到第几层（1=在意点，2=雷区）
         self.stall = 0              # 连续几句说出口后票数没涨（卡住了就送一次提示）
         self.last_votes = self.votes()
+        self.moved_most: dict = {}  # 陪审员 -> (最大正向变化, 那句话)，结局页"被这句打动"用
 
     # ---- 时间 ----
     def begin(self):
@@ -71,7 +74,11 @@ class Trial:
         return self.rested or (self.started_at is not None and self.time_left() <= 0)
 
     # ---- 计算 ----
-    def effect(self, jd) -> Effect:
+    @staticmethod
+    def _ramp(p, lo, hi):
+        return min(1.0, max(0.0, (p - lo) / (hi - lo))) if hi > lo else float(p >= lo)
+
+    def effect(self, jd, spoken: bool = True) -> Effect:
         c = self.cfg
         if jd.manip > c["manip_threshold"]:
             return Effect({j["id"]: -c["manip_backlash"] for j in self.jurors}, manip=True)
@@ -86,8 +93,12 @@ class Trial:
         annoyed = uses >= c.get("repeat_annoy", 99)
         # 只罚明确在念案卷的：P 在 recite_from 以下不罚，到 recite_full 罚满（中间那段是 Jev 拿不准的，不冤枉人）
         lo, hi = c.get("recite_from", 0.0), c.get("recite_full", 1.0)
-        ramp = min(1.0, max(0.0, (jd.recite - lo) / (hi - lo))) if hi > lo else float(jd.recite >= lo)
-        recite = 1.0 - c.get("recite_cut", 0.0) * ramp
+        rr = self._ramp(jd.recite, lo, hi)
+        recite = 1.0 - c.get("recite_cut", 0.0) * rr
+        cut = self._ramp(jd.incomplete, c.get("incomplete_from", 0.6), c.get("incomplete_full", 0.85)) if spoken else 0.0
+        if cut > 0:
+            recite *= 1.0 - c.get("incomplete_cut", 0.0) * cut
+            base = min(base, 0.0)
         if annoyed:
             base = min(base, 0.0) - c.get("repeat_penalty", 0.0)   # 听烦了：讲得再好也不加分
         deltas = {}
@@ -97,7 +108,7 @@ class Trial:
                 - jd.dislikes.get(k, 0.0) * c["dislike_weight"]
             deltas[k] = max(-c["max_delta"], min(c["max_delta"], d))
         return Effect(deltas, diluted=focus < 1.0, repeated=uses > 0, annoyed=annoyed,
-                      recited=jd.recite > 0.5, hit_ids=hit_ids)
+                      recited=rr >= 0.3 if hi < 1.0 else jd.recite > 0.5, cut_off=cut >= 0.5, hit_ids=hit_ids)
 
     def faces(self, deltas: dict) -> dict:
         t = self.cfg["face_threshold"]
@@ -105,7 +116,7 @@ class Trial:
 
     def preview(self, jd) -> dict:
         """打字时的预览：只给三档表情，不改任何状态。"""
-        return self.faces(self.effect(jd).deltas)
+        return self.faces(self.effect(jd, spoken=False).deltas)
 
     # ---- 说出口 ----
     def speak(self, text: str, jd) -> Spoken:
@@ -113,21 +124,26 @@ class Trial:
         eff = self.effect(jd)
         for k, d in eff.deltas.items():
             self.leans[k] = max(c["lean_min"], min(c["lean_max"], self.leans[k] + d))
+            if not eff.manip and d >= 0.3 and d > self.moved_most.get(k, (0, ""))[0]:
+                self.moved_most[k] = (d, text)
         notes = []
         if eff.manip:
             self.manip_strikes += 1
             notes.append(self.case["texts"]["manip"])
-        else:
+        elif not eff.cut_off:    # 话没说完的不算讲过这个论点
             if jd.argument != "none":
                 self.arg_uses[jd.argument] = self.arg_uses.get(jd.argument, 0) + 1
             self.touched.update(eff.hit_ids)
+        if not eff.manip:
             if eff.diluted:
                 notes.append(self.case["texts"]["diluted"])
             if eff.annoyed:
                 notes.append(self.case["texts"]["annoyed"])
             elif eff.repeated:
                 notes.append(self.case["texts"]["repeated"])
-            if eff.recited:
+            if eff.cut_off:
+                notes.append(self.case["texts"]["cut_off"])
+            elif eff.recited:
                 notes.append(self.case["texts"]["recited"])
         reactions = []
         for j in ([] if eff.manip else self.jurors):   # 操纵时全体皱眉，脸上已经看得到，文字只留法官那句
@@ -136,14 +152,14 @@ class Trial:
                 reactions.append({"juror": j["id"], "dir": 1, "text": j["up"]})
             elif d <= -0.5:
                 reactions.append({"juror": j["id"], "dir": -1, "text": j["down"]})
-        if not reactions and not eff.manip:
+        if not reactions and not eff.manip and not eff.cut_off:
             notes.append(self.case["texts"]["silent"])
         votes = self.votes()
         self.stall = self.stall + 1 if votes <= self.last_votes else 0
         self.last_votes = votes
         sp = Spoken(text, eff.deltas, reactions, notes, votes)
         self.history.append({"text": text, "deltas": eff.deltas, "quality": jd.quality,
-                             "argument": jd.argument, "manip": jd.manip, "recite": round(jd.recite, 3),
+                             "argument": jd.argument, "manip": jd.manip, "recite": round(jd.recite, 3), "incomplete": round(jd.incomplete, 3),
                              "hits": {k: round(v, 3) for k, v in jd.hits.items()},
                              "dislikes": {k: round(v, 3) for k, v in jd.dislikes.items()}, "votes": votes})
         return sp
@@ -176,11 +192,29 @@ class Trial:
 
     def verdict(self) -> dict:
         acquit = self.votes() >= self.cfg["win_votes"]
+        swing = self.cfg.get("swing_band", 0)
+        # 最打动人的一句：正向变化加起来最多的（操纵的不算）
+        best = None
+        for h in self.history:
+            if h["manip"] > self.cfg["manip_threshold"]:
+                continue
+            gain = sum(d for d in h["deltas"].values() if d > 0)
+            moved = [k for k, d in h["deltas"].items() if d >= 0.5]
+            if gain > 0.3 and (best is None or gain > best[0]):
+                best = (gain, h["text"], moved)
+        names = {j["id"]: j["name"] for j in self.jurors}
         return {
             "acquit": acquit,
             "votes": self.votes(),
+            "need": self.cfg["win_votes"],
+            "says": len(self.history),
             "text": self.case["texts"]["win" if acquit else "lose"],
+            "best": None if best is None else {"text": best[1], "moved": [names[k] for k in best[2]]},
             "jurors": [{"id": j["id"], "name": j["name"], "acquit": self.leans[j["id"]] > 0,
+                        "swing": -swing < self.leans[j["id"]] <= 0,
+                        # 原本倾向有罪、最后被说服的人：最打动 TA 的那句
+                        "by": self.moved_most.get(j["id"], (0, None))[1]
+                              if self.leans[j["id"]] > 0 and j["start"] <= 0 else None,
                         "line": j["acquit"] if self.leans[j["id"]] > 0 else j["guilty"]}
                        for j in self.jurors],
         }

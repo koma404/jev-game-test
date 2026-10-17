@@ -7,6 +7,7 @@
   argument      choice 主要在讲哪个论点（代码据此计算重复衰减）
   manip         noul   是否在命令/操控陪审员、改写规则（提示词注入）
   recite        noul   是否只是在念案卷：复述事实，没有自己的结论、推断、质疑或请求
+  incomplete    noul   是不是一句没说完、被截断的话（只在说出口时计较，打字预览不管）
 数值、权重、胜负全在 trial.py。"""
 from __future__ import annotations
 
@@ -25,6 +26,7 @@ class Judgment:
     argument_p: float = 0.0
     manip: float = 0.0
     recite: float = 0.0
+    incomplete: float = 0.0
     ms: float = 0.0                               # 这次请求的往返耗时
     cost: float = 0.0                             # 这次请求花了多少美元（OpenRouter 返回；没有就按 token 估）
 
@@ -49,6 +51,9 @@ def build_questions(case: dict) -> dict:
     # 实测：照抄案卷 ≈ 0.94–0.97，带推理/反问的同一事实 ≈ 0.05–0.15，空喊口号、求情也不算念案卷
     q["recite"] = {"type": "noul",
                    "instructions": "`player_said` 是不是在念案卷：只把 `case` 里的事实复述一遍，自己一句结论、推断、质疑或请求都没有说？"}
+    # 实测（22 句）：截断的 0.73–0.96，简短但完整的 0.08–0.42；"张伟根本没有""求求你们"这类口语两可，所以代码只罚 P≥0.6 的
+    q["incomplete"] = {"type": "noul",
+                       "instructions": "`player_said` 是不是一句没说完的话：在句子中间被截断，后面明显还缺内容？简短但意思完整的话不算。"}
     return q
 
 
@@ -68,6 +73,7 @@ def parse(case: dict, answers: dict, ms: float = 0.0) -> Judgment:
     j.argument_p = float(arg.get("probabilities", {}).get(j.argument, 0.0))
     j.manip = float(answers.get("manip", {}).get("noul", 0.0))
     j.recite = float(answers.get("recite", {}).get("noul", 0.0))
+    j.incomplete = float(answers.get("incomplete", {}).get("noul", 0.0))
     return j
 
 
@@ -127,5 +133,6 @@ class MockClient:
         # 念案卷：没有任何推理的字眼，且和某条案卷大段重合
         reasoning = re.search(r"怎么|凭什么|不可能|说明|证明|所以|难道|吗|？|\?|如果|可是|却|不能", text)
         copied = any(sum(1 for ch in text if ch in d) >= 0.8 * len(text) for d in self.case["dossier"])
+        ans["incomplete"] = {"type": "noul", "noul": 0.9 if re.search(r"[，,、]$|(不能|所以|但是|因为|如果|怎么会|那)$", text) else 0.1}
         ans["recite"] = {"type": "noul", "noul": 0.9 if copied and not reasoning and len(text) >= 8 else 0.05}
         return {"model": "mock", "answers": ans}

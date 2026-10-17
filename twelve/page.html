@@ -104,7 +104,8 @@ button:disabled{opacity:.5;cursor:default}
 #overlay{position:fixed;left:0;top:0;right:0;bottom:0;z-index:50;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;padding:16px}
 #overlay .box{background:var(--card);color:var(--fg);max-width:620px;width:100%;max-height:90vh;overflow-y:auto;border-radius:12px;padding:20px 22px}
 #overlay h2{margin:0 0 8px;color:var(--accent)}
-.vr{display:flex;gap:8px;margin:6px 0;font-size:14px} .vr b{min-width:4.5em} .vr .a{color:var(--acq)} .vr .g{color:var(--dim)}
+.vr{display:flex;gap:8px;margin:6px 0;font-size:14px} .vr b{min-width:4.5em} .vr>span:first-of-type{min-width:2.5em} .vr .a{color:var(--acq)} .vr .g{color:var(--dim)} .vr .s{color:var(--swing)}
+.best{margin:10px 0 12px;padding:10px 12px;border-left:4px solid var(--acq);background:var(--swingbg);border-radius:6px} .best .q{font-size:16px;font-weight:bold;margin:2px 0}
 </style>
 </head>
 <body>
@@ -298,11 +299,21 @@ window.onerror=function(msg, src, line, col){
   function finish(v){
     if(over) return; over=true; clearInterval(timerId);
     $('in').disabled=true; $('go').disabled=true; $('rest').disabled=true;
-    var h='<h2>'+(v.acquit?'无罪':'有罪')+'（'+v.votes+' / 12 判无罪）</h2><p></p>';
+    var h='<h2>'+(v.acquit?'无罪':'有罪')+'（'+v.votes+' / 12 判无罪）</h2><p id="vtext"></p>';
+    var stat=[];
+    if(v.says!=null) stat.push('说出口 '+v.says+' 句');
+    if(!v.acquit && v.need) stat.push('还差 '+(v.need-v.votes)+' 票');
+    var sw=0; for(var q=0;q<v.jurors.length;q++) if(v.jurors[q].swing) sw++;
+    if(!v.acquit && sw) stat.push(sw+' 人在摇摆，再推一把就可能翻');
+    if(stat.length) h+='<p class="note">'+stat.join(' · ')+'</p>';
+    if(v.best) h+='<div class="best"><div class="note">最打动人的一句</div><div id="vbest" class="q"></div><div class="note" id="vmoved"></div></div>';
     for(var i=0;i<v.jurors.length;i++){ var j=v.jurors[i];
-      h+='<div class="vr"><b>'+esc(j.name)+'</b><span class="'+(j.acquit?'a':'g')+'">'+(j.acquit?'无罪':'有罪')+'</span><span>'+esc(j.line)+'</span></div>'; }
+      var tag=j.acquit?'<span class="a">无罪</span>':(j.swing?'<span class="s">摇摆</span>':'<span class="g">有罪</span>');
+      h+='<div class="vr"><b>'+esc(j.name)+'</b>'+tag+'<span>'+esc(j.line)+
+        (j.by?'<br><small class="note">'+(v.best&&j.by===v.best.text?'被上面那句打动':'被这句打动：「'+esc(j.by)+'」')+'</small>':'')+'</span></div>'; }
     h+='<p style="margin-top:16px"><button id="again">再开一庭</button></p>';
-    $('box').innerHTML=h; $('box').getElementsByTagName('p')[0].textContent=v.text;
+    $('box').innerHTML=h; $('vtext').textContent=v.text;
+    if(v.best){ $('vbest').textContent='「'+v.best.text+'」'; $('vmoved').textContent=v.best.moved.length?'打动了 '+v.best.moved.join('、'):''; }
     $('overlay').style.display='flex';
     $('again').onclick=function(){ location.reload(); };
   }
@@ -319,7 +330,7 @@ window.onerror=function(msg, src, line, col){
       deadline=new Date().getTime()+r.time_left*1000; tick(); timerId=setInterval(tick, 250); setInterval(poll, 50);
       $('in').disabled=false; $('go').disabled=false; $('rest').disabled=false; $('hint').disabled=false;
       log('tip', '开庭了。在下面输入一句辩护的话，停一下，看看谁点头、谁皱眉；满意了再按回车。');
-      banner(['开庭了。先试试下面两句：一句讲证据，一句讲人情——看看点头的是不是同一批人。']);
+      banner(['开庭了。先试试下面两句：一句讲证据，一句讲人情——看看点头的是不是同一批人。', '表情 = 对你正在打的话的预览；绿框 = 倾向无罪，黄框 = 摇摆，灰框 = 有罪。']);
       var ex=['监控里那个人的脸根本看不清，凭什么认定就是张伟？','他一个人守了八年夜班，女儿还躺在医院，他怎么会拿这一切去赌一批电缆？'], h='';
       for(var i=0;i<ex.length;i++) h+='<button class="ghost ex">试一句：'+esc(ex[i])+'</button>';
       $('chips').innerHTML=h; var bs=$('chips').getElementsByTagName('button');
@@ -371,12 +382,15 @@ window.onerror=function(msg, src, line, col){
     var m=Math.floor(C.time_limit/60);
     $('t').textContent=m+':'+('0'+C.time_limit%60).slice(-2);
     var cost=C.hint_cost||10;
+    var phone=window.innerWidth<=640;
+    // 手机上一屏就要看得到「开始陈词」：先给三步和按钮，图例和窍门收进「详细说明」（电脑上默认展开）
     $('box').innerHTML='<h2>'+esc(C.title)+'</h2><p id="brief"></p>'+
-      '<h3>怎么玩</h3><ol>'+
-      '<li>'+(window.innerWidth<=640?'点「案卷」':'右边的<b>案卷</b>')+'里有你能用的事实。</li>'+
-      '<li>在输入框里打一句辩护的话，<b>停一下</b>，看 12 张脸怎么变。</li>'+
-      '<li>满意了按<b>回车</b>，这句话才算说出口，陪审员的立场才会改变。</li>'+
-      '<li>四分钟内让至少 <b>'+C.win_votes+'</b> 人倾向无罪。时间一开始就不会停。</li></ol>'+
+      '<ol>'+
+      '<li>打一句辩护的话，<b>停一下</b>，看 12 张脸谁点头、谁皱眉。</li>'+
+      '<li>满意了按<b>回车</b>，这句话才算说出口。</li>'+
+      '<li>'+Math.round(C.time_limit/60)+' 分钟内让至少 <b>'+C.win_votes+'</b> 人倾向无罪（<span style="color:var(--acq)">绿框</span>）。'+(phone?'事实在「案卷」里。':'事实在右边的案卷里。')+'</li></ol>'+
+      '<p><button id="start">开始陈词</button> <button id="more" class="ghost sm">'+(phone?'详细说明 ▾':'收起说明 ▴')+'</button></p>'+
+      '<div id="detail" style="display:'+(phone?'none':'block')+'">'+
       '<h3>看懂陪审员</h3>'+
       '<div class="legend"><span>'+face(1)+'点头</span><span>'+face(0)+'没感觉</span><span>'+face(-1)+'皱眉</span></div>'+
       '<p class="note" style="margin:0 0 8px">表情只是对<b>你正在打的这句话</b>的预览，输入框空着时都是平静的。</p>'+
@@ -384,10 +398,11 @@ window.onerror=function(msg, src, line, col){
       '<p class="note" style="margin:0 0 8px">脸下面的细条是倾向：越往右越倾向无罪。说出口后，被打动或反感的人卡片上会冒出反应（▲ / ▼），输入框上方的黄条告诉你还差几票。</p>'+
       '<h3>窍门</h3><ul>'+
       '<li>每个人在意的东西不一样：同一句话，有人点头，有人皱眉。看看他们的身份。</li>'+
-      '<li>照抄案卷、反复讲同一件事都不管用——要说出事实<b>意味着什么</b>。</li>'+
+      '<li>照抄案卷、反复讲同一件事、话说一半都不管用——要说出事实<b>意味着什么</b>。</li>'+
       '<li>卡住了点<b>提示</b>（扣 '+cost+' 秒）；连续两句没有进展，会免费送你一次。</li>'+
-      '<li>别想着下命令——陪审员不吃这一套。</li></ul>'+
-      '<p><button id="start">开始陈词</button></p>';
+      '<li>别想着下命令——陪审员不吃这一套。时间一开始就不会停。</li></ul></div>';
+    $('more').onclick=function(){ var d=$('detail'), open=d.style.display==='none';
+      d.style.display=open?'block':'none'; this.textContent=open?'收起说明 ▴':'详细说明 ▾'; };
     $('brief').textContent=C.brief; $('overlay').style.display='flex'; $('start').onclick=begin;
     if(r.backend==='mock') $('ms').textContent='（离线模拟模式）';
   }); }

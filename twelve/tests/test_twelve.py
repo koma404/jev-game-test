@@ -10,12 +10,12 @@ from twelve.server import App, load_case, make_handler
 from twelve.trial import Trial
 
 
-def jd(hits=(), dislikes=(), quality=2.5, argument="none", manip=0.0, recite=0.0):
+def jd(hits=(), dislikes=(), quality=2.5, argument="none", manip=0.0, recite=0.0, incomplete=0.0):
     case = load_case()
     ids = [j["id"] for j in case["jurors"]]
     return Judgment(hits={k: (0.9 if k in hits else 0.05) for k in ids},
                     dislikes={k: (0.9 if k in dislikes else 0.05) for k in ids},
-                    quality=quality, argument=argument, manip=manip, recite=recite)
+                    quality=quality, argument=argument, manip=manip, recite=recite, incomplete=incomplete)
 
 
 class Clock:
@@ -72,6 +72,18 @@ class TrialTests(unittest.TestCase):
         self.assertLess(self.t.history[-1]["deltas"]["qian"], 0)
         self.assertLess(self.t.history[-1]["deltas"]["han"], 0)          # 没被戳中的人也听烦了
         self.assertIn(self.case["texts"]["annoyed"], notes)
+
+    def test_half_sentence_previews_but_does_not_count(self):
+        # 打到半句时脸照样会动（读空气），但半句话说出口不算数、也不算用掉这个论点
+        half = jd(hits={"han", "he"}, argument="no_loot", incomplete=0.95)
+        self.assertEqual(self.t.preview(half)["han"], 1)
+        before = dict(self.t.leans)
+        sp = self.t.speak("失窃的电缆至今没有找到，不能", half)
+        self.assertLess(self.t.leans["han"] - before["han"], 0.3)
+        self.assertIn(self.case["texts"]["cut_off"], sp.notes)
+        self.assertNotIn("no_loot", self.t.arg_uses)
+        full = self.t.speak("…不能就这样定罪。", jd(hits={"han", "he"}, argument="no_loot")).deltas["han"]
+        self.assertGreater(full, 0.5)
 
     def test_recite_ramp_spares_uncertain_lines(self):
         # 配置了 recite_from / recite_full 时，Jev 拿不准的（P 在门槛以下）不罚，明确照抄的罚满
@@ -132,6 +144,16 @@ class TrialTests(unittest.TestCase):
         self.t.speak("c", jd(hits={"lin", "song", "xiulan"}, quality=3))
         self.assertEqual(self.t.stall, 0)
 
+    def test_verdict_tells_who_was_won_over_by_which_line(self):
+        self.t.speak("没感觉的一句", jd(quality=1.5))
+        self.t.speak("打动秀兰林护士的一句", jd(hits={"xiulan", "lin", "song"}, quality=3))
+        v = self.t.verdict()
+        by = {j["id"]: j["by"] for j in v["jurors"]}
+        self.assertEqual(by["xiulan"], "打动秀兰林护士的一句")
+        self.assertIsNone(by["ajie"])                      # 一开始就倾向无罪，不是被哪句话翻过来的
+        self.assertEqual(v["best"]["text"], "打动秀兰林护士的一句")
+        self.assertIn("秀兰", v["best"]["moved"])
+
     def test_timer_and_verdict(self):
         self.t.begin()
         self.clock.t += self.case["config"]["time_limit"] + 1
@@ -145,7 +167,7 @@ class JudgeTests(unittest.TestCase):
     def test_questions_and_parse_roundtrip(self):
         case = load_case()
         q = build_questions(case)
-        self.assertEqual(len(q), 12 * 2 + 4)
+        self.assertEqual(len(q), 12 * 2 + 5)
         resp = MockClient(case).ask({"player_said": "钥匙有三把，公司没有任何登记"}, q)
         j = parse(case, resp["answers"])
         self.assertGreater(j.hits["qian"], 0.5)
