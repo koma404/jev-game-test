@@ -10,9 +10,13 @@
     专注系数：一句话戳中超过 focus_limit 人时按比例稀释（"什么都说等于什么都没说"）
     重复衰减：同一论点每多讲一次，乘一次 repeat_decay；讲到第 repeat_annoy+1 次起，所有人再 -repeat_penalty（听烦了）
     念案卷：戳中加成再乘 (1 - recite_cut * P(recite))——事实要说出它意味着什么才打动人
+    照搬案卷原文：代码比对逐字重合的比例 copied，从 copy_from 到 copy_full 渐进，与 P(recite) 取大；
+    念案卷时「人人都听得到的好坏」（基础分）也按 recite_base_cut 缩掉——照抄的话不该白送所有人好感
     话没说完：说出口时戳中加成再乘 (1 - incomplete_cut * ramp(P))，基础分不为正；打字预览不计较（边打边看脸是核心玩法）
     操纵：P(manip) > manip_threshold 时这句话作废，所有人 -manip_backlash
-    连带：有 influence 的陪审员（硬骨头）第一次被说服时，其余仍倾向有罪的人各 +influence（每人只触发一次）
+    连带：有 influence 的陪审员（硬骨头）被这句话**直接**说服（第一次）时，其余仍倾向有罪的人各 +influence
+    （每人只触发一次；同一句里多位硬骨头松口取最大的一个，不叠加；连带只让人"动摇"——最多推到 0 的下方，不会直接翻成无罪：
+    翻转必须靠玩家自己的话，否则一句话能连锁翻一片）
 """
 from __future__ import annotations
 
@@ -97,8 +101,11 @@ class Trial:
         annoyed = uses >= c.get("repeat_annoy", 99)
         # 只罚明确在念案卷的：P 在 recite_from 以下不罚，到 recite_full 罚满（中间那段是 Jev 拿不准的，不冤枉人）
         lo, hi = c.get("recite_from", 0.0), c.get("recite_full", 1.0)
-        rr = self._ramp(jd.recite, lo, hi)
+        rr = max(self._ramp(jd.recite, lo, hi),
+                 self._ramp(getattr(jd, "copied", 0.0), c.get("copy_from", 2.0), c.get("copy_full", 3.0)))   # 默认不启用
         recite = 1.0 - c.get("recite_cut", 0.0) * rr
+        if base > 0 and rr > 0:
+            base *= 1.0 - c.get("recite_base_cut", 0.0) * rr
         cut = self._ramp(jd.incomplete, c.get("incomplete_from", 0.6), c.get("incomplete_full", 0.85)) if spoken else 0.0
         if cut > 0:
             recite *= 1.0 - c.get("incomplete_cut", 0.0) * cut
@@ -133,15 +140,24 @@ class Trial:
                 self.moved_most[k] = (d, text)
         # 连带：硬骨头第一次松口，其余仍倾向有罪的人跟着动摇（陪审团是会互相影响的）
         cascade = []
-        for j in self.jurors:
-            k, inf = j["id"], j.get("influence", 0)
-            if inf and k not in self.cascaded and before[k] <= 0 < self.leans[k]:
+        direct = dict(self.leans)                     # 只看这句话直接造成的结果，连带的翻转不再引发连带
+        flipped = [(j["id"], j["influence"]) for j in self.jurors
+                   if j.get("influence") and j["id"] not in self.cascaded and before[j["id"]] <= 0 < direct[j["id"]]]
+        if flipped:
+            inf = max(i for _, i in flipped)
+            for k, _ in flipped:
                 self.cascaded.add(k)
-                moved = [o["id"] for o in self.jurors if o["id"] != k and self.leans[o["id"]] <= 0]
-                for o in moved:
-                    self.leans[o] = min(c["lean_max"], self.leans[o] + inf)
-                    eff.deltas[o] = eff.deltas[o] + inf
+            for k, _ in flipped:
+                moved = [o["id"] for o in self.jurors if o["id"] != k and direct[o["id"]] <= 0]
                 cascade.append((k, moved))
+            moved_all = set()
+            for o in {o for _, m in cascade for o in m}:
+                new = min(self.leans[o] + inf, -0.05) if self.leans[o] <= -0.05 else self.leans[o]
+                if new - self.leans[o] > 1e-9:
+                    eff.deltas[o] += new - self.leans[o]
+                    self.leans[o] = new
+                    moved_all.add(o)
+            cascade = [(k, [o for o in m if o in moved_all]) for k, m in cascade]
         notes = []
         names = {j["id"]: j["name"] for j in self.jurors}
         for k, moved in cascade:
@@ -180,7 +196,7 @@ class Trial:
         sp = Spoken(text, eff.deltas, reactions, notes, votes,
                     [{"juror": k, "moved": m} for k, m in cascade])
         self.history.append({"text": text, "deltas": eff.deltas, "quality": jd.quality,
-                             "argument": jd.argument, "manip": jd.manip, "recite": round(jd.recite, 3), "incomplete": round(jd.incomplete, 3),
+                             "argument": jd.argument, "manip": jd.manip, "recite": round(jd.recite, 3), "copied": round(getattr(jd, "copied", 0.0), 3), "incomplete": round(jd.incomplete, 3),
                              "cascade": [k for k, _ in cascade],
                              "hits": {k: round(v, 3) for k, v in jd.hits.items()},
                              "dislikes": {k: round(v, 3) for k, v in jd.dislikes.items()}, "votes": votes})

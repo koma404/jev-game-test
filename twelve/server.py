@@ -115,7 +115,7 @@ class Court:
             self.logbook.write(event, cid=self.cid, player=self.player, channel=self.channel,
                                case=self.case.get("id"), **fields)
 
-    def check_events(self) -> list:
+    def check_events(self, force: bool = False) -> list:
         """庭审中途的事件（检方出示新证据之类）：说了 after_says 句以后、或剩余时间 ≤ at_time_left 时触发，每个只触发一次。"""
         t = self.trial
         fired = []
@@ -124,7 +124,7 @@ class Court:
         for ev in self.case.get("events", []):
             if ev["id"] in self.fired:
                 continue
-            due = ("after_says" in ev and len(t.history) >= ev["after_says"]) or \
+            due = force or ("after_says" in ev and len(t.history) >= ev["after_says"]) or \
                   ("at_time_left" in ev and t.time_left() <= ev["at_time_left"])
             if not due:
                 continue
@@ -266,8 +266,8 @@ class App:
         return out
 
     @staticmethod
-    def _events(c) -> dict:
-        fired = c.check_events()
+    def _events(c, force=False) -> dict:
+        fired = c.check_events(force)
         if not fired:
             return {}
         return {"events": fired, "leans": c.trial.leans, "votes": c.trial.votes(), "dossier": c.case["dossier"]}
@@ -381,6 +381,10 @@ class App:
             return 200, {**h, **self._events(c), "time_left": t.time_left()}, sid
         if path == "/api/verdict":
             if not t.over:
+                # 还有没发生的事件（检方的反转）：先让它发生，玩家面对之后再决定要不要结束——反转躲不掉
+                pending = self._events(c, force=True)
+                if pending:
+                    return 200, {**pending, "time_left": t.time_left(), "continue": True}, sid
                 t.rested = True
             v = t.verdict()
             c.end(v, "rested" if t.rested else "timeout")

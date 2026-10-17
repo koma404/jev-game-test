@@ -306,7 +306,10 @@ window.onerror=function(msg, src, line, col){
     $('timer').className = left<=30 ? 'stat low' : 'stat';
     if(left<=0 && !over) rest();
   }
-  function rest(){ if(over) return; post('/api/verdict', {}, function(s, r){ if(r.verdict) finish(r.verdict); }); }
+  function rest(){ if(over) return; post('/api/verdict', {}, function(s, r){
+    if(r.verdict) return finish(r.verdict);
+    if(r.events) handleEvents(r);     // 还有没发生的反转：先面对它，之后可以再点结束
+  }); }
   function finish(v){
     if(over) return; over=true; clearInterval(timerId);
     $('in').disabled=true; $('go').disabled=true; $('rest').disabled=true;

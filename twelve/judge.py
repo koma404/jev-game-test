@@ -27,8 +27,35 @@ class Judgment:
     manip: float = 0.0
     recite: float = 0.0
     incomplete: float = 0.0
+    copied: float = 0.0                           # 这句话有多少字是照搬案卷原文（代码比对，不问 Jev）
     ms: float = 0.0                               # 这次请求的往返耗时
     cost: float = 0.0                             # 这次请求花了多少美元（OpenRouter 返回；没有就按 token 估）
+
+
+_PUNCT = re.compile(r"[\s，。；：、！？“”‘’（）()\[\],.;:!?\"'—\-…]")
+
+
+def copy_ratio(text: str, dossier: list, min_run: int = 6, min_chars: int = 14) -> float:
+    """这句话里有多大比例的字，是连续 ≥ min_run 个字与案卷原文一致的（去掉标点空格后比）。
+    被照搬的字不足 min_chars 个时记 0——引用一小段案卷再展开论证是正常的。
+    Jev 擅长分辨"换个说法的复述"和"讲道理"，但分不清"案卷原文 + 一句空话"和"很短的真推理"，所以逐字照搬交给代码。"""
+    t = _PUNCT.sub("", text)
+    if not t:
+        return 0.0
+    lines = [_PUNCT.sub("", d) for d in dossier]
+    covered = [False] * len(t)
+    for i in range(len(t)):
+        best = 0
+        for d in lines:
+            n = 0
+            while i + n < len(t) and t[i:i + n + 1] in d:
+                n += 1
+            best = max(best, n)
+        if best >= min_run:
+            for k in range(i, i + best):
+                covered[k] = True
+    n = sum(covered)
+    return n / len(t) if n >= min_chars else 0.0
 
 
 def build_questions(case: dict) -> dict:
@@ -89,6 +116,7 @@ class Judge:
         resp = self.client.ask(state_for(self.case, text), self.questions)
         ms = getattr(self.client, "last_ms", 0.0) or (time.time() - t0) * 1000
         jd = parse(self.case, resp["answers"], ms)
+        jd.copied = copy_ratio(text, self.case["dossier"])
         u = resp.get("usage") or {}
         # 输出免费；没有 cost 字段时按输入 $0.042 / 百万 token 估算
         if getattr(self.client, "is_local", False):

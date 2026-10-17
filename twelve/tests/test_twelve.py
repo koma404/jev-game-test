@@ -85,6 +85,32 @@ class TrialTests(unittest.TestCase):
         full = self.t.speak("…不能就这样定罪。", jd(hits={"han", "he"}, argument="no_loot")).deltas["han"]
         self.assertGreater(full, 0.5)
 
+    def test_copy_ratio_catches_verbatim_dossier_with_a_vacuous_tail(self):
+        from twelve.judge import copy_ratio
+        d = self.case["dossier"]
+        self.assertEqual(copy_ratio("监控里那个人的脸根本看不清，凭什么认定就是张伟？", d), 0.0)   # 自己的话
+        self.assertEqual(copy_ratio("2:10 他在 A 区刷了卡", d), 0.0)                              # 太短的引用不算
+        self.assertGreater(copy_ratio("张伟的巡逻打卡记录显示，2:10 他在 A 区（离 B 区步行约八分钟）刷了卡，证据还要查", d), 0.8)
+
+    def test_copied_line_gets_no_free_base_goodwill(self):
+        self.t.cfg = dict(self.t.cfg, copy_from=0.5, copy_full=0.9, recite_base_cut=0.9, quality_center=1.5)
+        own = jd(quality=3.0)
+        pasted = jd(quality=3.0)
+        pasted.copied = 1.0
+        self.assertGreater(self.t.effect(own).deltas["lin"], 0.2)
+        self.assertLess(self.t.effect(pasted).deltas["lin"], 0.05)
+        self.assertTrue(self.t.effect(pasted).recited)
+
+    def test_cascade_does_not_chain_or_flip_anyone_by_itself(self):
+        for j in self.t.jurors:
+            if j["id"] in ("lin", "song"):
+                j["influence"] = 0.4
+        self.t.leans.update({"lin": -0.1, "song": -0.2, "han": -0.1})
+        sp = self.t.speak("只打动林护士", jd(hits={"lin"}, quality=1.5))
+        self.assertEqual([c["juror"] for c in sp.cascade], ["lin"])          # 小宋被带动但没翻，所以不再引发第二轮
+        self.assertLessEqual(self.t.leans["han"], 0)                          # 连带不会直接把人翻成无罪
+        self.assertGreater(self.t.leans["han"], -0.1)                          # 但确实动了
+
     def test_recite_ramp_spares_uncertain_lines(self):
         # 配置了 recite_from / recite_full 时，Jev 拿不准的（P 在门槛以下）不罚，明确照抄的罚满
         self.t.cfg = dict(self.t.cfg, recite_from=0.6, recite_full=0.9)
@@ -479,6 +505,19 @@ class LevelTests(unittest.TestCase):
         self.assertNotIn("events", r)
         other = self.app.cases["case9"]["beta"]
         self.assertEqual(len(other["dossier"]), len(load_case()["dossier"]))   # 不影响别的庭
+
+    def test_ending_early_cannot_skip_a_pending_reversal(self):
+        self.call("/api/new", {"code": "adm", "case": "case9"})
+        self.call("/api/begin")
+        court = next(iter(self.app.courts.values()))
+        court.case["events"] = court.case["events"][:1]               # 说够一句才触发的事件
+        r = self.call("/api/verdict")                                  # 一句没说就想结束
+        self.assertEqual([e["id"] for e in r["events"]], ["new_evidence"])
+        self.assertTrue(r["continue"])
+        self.assertNotIn("verdict", r)
+        self.assertFalse(court.trial.over)
+        r = self.call("/api/verdict")                                  # 面对过反转之后可以结束
+        self.assertIn("verdict", r)
 
     def test_time_event_can_fire_while_typing(self):
         self.call("/api/new", {"code": "adm", "case": "case9"})
