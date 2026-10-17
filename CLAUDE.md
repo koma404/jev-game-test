@@ -119,8 +119,9 @@ Jev 的 `recite` 看的是"有没有自己的推理"，案卷原文后面加一�
 - 案子里 `intro: [{art, text}]`，每关 4–5 个镜头、每句 ≤ 20 字，替代读一大段案情；第 1 关：仓库夜景 → B 区监控里看不清脸的保安身影 → 2:10 A 区打卡机 → 法庭里低头的张伟。
 - 画面是 160×90 的像素画，用代码画（`twelve/art/pix.py` 工具 + `twelve/art/case1.py` 每个镜头一个函数），`python -m twelve.art.case1` 生成 `case1_*.json`（调色板 + 行程编码，每张 3–6 KB），页面用 canvas 画、CSS 放大。
 - 点击 / 空格 / 回车：字没打完就先打完，打完就下一镜；右上角「跳过」。每个案子只自动播一次（localStorage），开庭说明里有「重看开场」。Chrome 109 实测正常。
-- **配乐**：`twelve/audio/` 放 `intro` / `trial` / `reversal`（mp3/ogg/m4a/wav）就会在开场 / 庭审 / 反转时循环播放、淡入淡出，标题旁 ♪ 静音。
-  这个文件夹不进仓库（`.gitignore`）：内测期借用的版权曲只在本地放，Render 线上版没有配乐；以后用自己的曲子再放行。服务端只认这三个槽位名，防目录穿越。
+- **配乐**：`intro` / `trial` / `reversal`（mp3/ogg/m4a/wav）在开场 / 庭审 / 反转时循环播放、淡入淡出，标题旁 ♪ 静音。两个文件夹：
+  `twelve/music/`（进仓库，线上用；放自己做的曲子）和 `twelve/audio/`（`.gitignore`，只在本地，优先于 music/；借用的版权曲放这里）。
+  服务端只认这三个槽位名（防目录穿越），支持 Range 分段（Safari 播音频要），URL 带文件修改时间防旧缓存。
 
 ## 4. 工程结构
 
@@ -130,7 +131,8 @@ twelve/
   cases/case2.json   第 2 关《黄衣服》（含庭审中途反转事件）
   cases/case1.json   案情、案卷、12 位陪审员（在意点 / 雷区 / 初始倾向 / 反应与裁决台词）、论点表、数值参数、离线 mock 关键词
   art/               开场镜头：pix.py（像素画工具、3×5 字体、编码）、case1.py（第 1 关 4 个镜头）、case1_*.json（生成物）
-  audio/             配乐（自己放，不进仓库，见 audio/README.md）
+  music/             发布用配乐（自己做的曲子，进仓库，线上用）
+  audio/             本地配乐（不进仓库，优先于 music/，见 audio/README.md）
   judge.py           组题、解析 Jev 返回为 Judgment；MockClient 为离线关键词版
   trial.py           庭审规则：倾向值、单句效果、预览、计时、裁决（纯代码，无 Jev）
   link.py            复用 HTTPS 连接的 Jev 客户端（只在第一次握手），网络远时对延迟影响很大

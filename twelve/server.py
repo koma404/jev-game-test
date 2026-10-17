@@ -22,7 +22,8 @@ from .trial import Trial
 HERE = Path(__file__).parent
 IDLE_SECONDS = 2 * 3600
 ART = HERE / "art"            # 开场镜头的像素画（python -m twelve.art.case1 生成）
-AUDIO = HERE / "audio"        # 配乐：自己放文件进来（不进仓库），没有就静音
+AUDIO = HERE / "audio"        # 本地配乐：不进仓库（借用的曲子只在自己电脑上放），有就优先用
+MUSIC = HERE / "music"        # 发布用的配乐：自己做的曲子，进仓库，线上版用这个
 MUSIC_SLOTS = ("intro", "trial", "reversal")
 AUDIO_TYPES = {".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".m4a": "audio/mp4", ".wav": "audio/wav"}
 _art_cache: dict = {}
@@ -35,14 +36,22 @@ def load_art(name: str):
     return _art_cache[name]
 
 
+def music_path(slot: str):
+    """intro / trial / reversal 的音乐文件：先找本地的 audio/，再找仓库里的 music/；没有返回 None。"""
+    for folder in (AUDIO, MUSIC):
+        for ext in AUDIO_TYPES:
+            f = folder / f"{slot}{ext}"
+            if f.exists():
+                return f
+    return None
+
+
 def music_files() -> dict:
-    """twelve/audio/ 里有 intro / trial / reversal（.mp3 .ogg .m4a .wav 任一）就用。"""
     out = {}
     for slot in MUSIC_SLOTS:
-        for ext in AUDIO_TYPES:
-            if (AUDIO / f"{slot}{ext}").exists():
-                out[slot] = f"/audio/{slot}{ext}"
-                break
+        f = music_path(slot)
+        if f:
+            out[slot] = f"/audio/{slot}{f.suffix}?v={int(f.stat().st_mtime)}"   # 换了曲子浏览器不会用旧缓存
     return out
 
 
@@ -523,17 +532,38 @@ def make_handler(app: App):
                 self._send(200, page, "text/html; charset=utf-8")
             elif path.startswith("/audio/"):
                 name = path[len("/audio/"):]
-                f = AUDIO / name
-                if name.split(".")[0] in MUSIC_SLOTS and f.suffix in AUDIO_TYPES and "/" not in name and f.exists():
-                    data = f.read_bytes()
-                    self.send_response(200)
-                    self.send_header("Content-Type", AUDIO_TYPES[f.suffix])
-                    self.send_header("Content-Length", str(len(data)))
-                    self.send_header("Cache-Control", "max-age=86400")
-                    self.end_headers()
-                    self.wfile.write(data)
+                slot, _, ext = name.partition(".")
+                f = music_path(slot) if slot in MUSIC_SLOTS and "/" not in name else None
+                if f is None or f.suffix != "." + ext:
+                    return self._send(404, b"not found", "text/plain")
+                data = f.read_bytes()
+                start, end = 0, len(data) - 1
+                rng = self.headers.get("Range", "")
+                if rng.startswith("bytes="):            # 有的浏览器（Safari）播放音频要分段取
+                    a, _, b = rng[6:].split(",")[0].partition("-")
+                    try:
+                        if a:
+                            start, end = int(a), min(int(b) if b else end, end)
+                        else:
+                            start = max(0, len(data) - int(b))
+                    except ValueError:
+                        start, end = 0, len(data) - 1
+                    if start > end:
+                        self.send_response(416)
+                        self.send_header("Content-Range", f"bytes */{len(data)}")
+                        self.send_header("Content-Length", "0")
+                        self.end_headers()
+                        return
+                    self.send_response(206)
+                    self.send_header("Content-Range", f"bytes {start}-{end}/{len(data)}")
                 else:
-                    self._send(404, b"not found", "text/plain")
+                    self.send_response(200)
+                self.send_header("Content-Type", AUDIO_TYPES[f.suffix])
+                self.send_header("Accept-Ranges", "bytes")
+                self.send_header("Content-Length", str(end - start + 1))
+                self.send_header("Cache-Control", "max-age=86400")
+                self.end_headers()
+                self.wfile.write(data[start:end + 1])
             elif path in ("/admin", "/admin/log") and app.admin_ok(query):
                 if path == "/admin":
                     self._send(200, app.admin_page(query).encode("utf-8"), "text/html; charset=utf-8")
