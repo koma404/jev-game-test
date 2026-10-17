@@ -17,6 +17,7 @@ header{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:1
 h1{font-size:22px;margin:0;color:var(--accent)}
 .stat{font-size:15px;color:var(--dim)} .stat b{color:var(--fg);font-size:20px}
 #timer.low b{color:var(--down)}
+.beta{font-size:12px;padding:1px 8px;border-radius:10px;background:var(--swing);color:#fff;align-self:center}
 #ms{margin-left:auto;font-size:12px;color:#888} #ms.err{color:#c0392b}
 #grid{display:flex;flex-wrap:wrap;margin:-4px}
 #grid .j{width:calc(16.666% - 8px);margin:4px}
@@ -405,6 +406,7 @@ window.onerror=function(msg, src, line, col){
       d.style.display=open?'block':'none'; this.textContent=open?'收起说明 ▴':'详细说明 ▾'; };
     $('brief').textContent=C.brief; $('overlay').style.display='flex'; $('start').onclick=begin;
     if(r.backend==='mock') $('ms').textContent='（离线模拟模式）';
+    if(r.channel==='beta'){ var bg=document.createElement('span'); bg.className='beta'; bg.textContent='内测版'; $('title').parentNode.insertBefore(bg, $('title').nextSibling); document.title='十二人（内测版）'; }
   }); }
   open();
 })();

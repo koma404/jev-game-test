@@ -68,6 +68,11 @@ def report(events: list, case: dict | None = None) -> str:
         names = {"code": "口令错", "budget": "额度用完", "per_ip": "开庭太频繁", "full": "人满"}
         L.append("被拦下：" + "，".join(f"{names.get(k, k)} {v}" for k, v in c.most_common()))
 
+    chans = Counter(v.get("channel", "release") for v in verdicts)
+    if len(chans) > 1 or "beta" in chans:
+        L.append("版本：" + "，".join(
+            f"{'内测版' if ch == 'beta' else '发布版'} {n} 局 胜 {sum(1 for v in verdicts if v.get('channel', 'release') == ch and v.get('acquit'))}"
+            for ch, n in chans.items()))
     # ---- 胜负 ----
     L.append("\n== 胜负 ==")
     if verdicts:

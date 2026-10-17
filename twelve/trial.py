@@ -12,6 +12,7 @@
     念案卷：戳中加成再乘 (1 - recite_cut * P(recite))——事实要说出它意味着什么才打动人
     话没说完：说出口时戳中加成再乘 (1 - incomplete_cut * ramp(P))，基础分不为正；打字预览不计较（边打边看脸是核心玩法）
     操纵：P(manip) > manip_threshold 时这句话作废，所有人 -manip_backlash
+    连带：有 influence 的陪审员（硬骨头）第一次被说服时，其余仍倾向有罪的人各 +influence（每人只触发一次）
 """
 from __future__ import annotations
 
@@ -38,6 +39,7 @@ class Spoken:
     reactions: list
     notes: list
     votes: int
+    cascade: list = field(default_factory=list)   # [(被说服的硬骨头, [跟着动摇的人])]
 
 
 class Trial:
@@ -58,6 +60,7 @@ class Trial:
         self.stall = 0              # 连续几句说出口后票数没涨（卡住了就送一次提示）
         self.last_votes = self.votes()
         self.moved_most: dict = {}  # 陪审员 -> (最大正向变化, 那句话)，结局页"被这句打动"用
+        self.cascaded: set = set()  # 已经触发过连带的硬骨头
 
     # ---- 时间 ----
     def begin(self):
@@ -122,11 +125,27 @@ class Trial:
     def speak(self, text: str, jd) -> Spoken:
         c = self.cfg
         eff = self.effect(jd)
+        before = dict(self.leans)
         for k, d in eff.deltas.items():
             self.leans[k] = max(c["lean_min"], min(c["lean_max"], self.leans[k] + d))
             if not eff.manip and d >= 0.3 and d > self.moved_most.get(k, (0, ""))[0]:
                 self.moved_most[k] = (d, text)
+        # 连带：硬骨头第一次松口，其余仍倾向有罪的人跟着动摇（陪审团是会互相影响的）
+        cascade = []
+        for j in self.jurors:
+            k, inf = j["id"], j.get("influence", 0)
+            if inf and k not in self.cascaded and before[k] <= 0 < self.leans[k]:
+                self.cascaded.add(k)
+                moved = [o["id"] for o in self.jurors if o["id"] != k and self.leans[o["id"]] <= 0]
+                for o in moved:
+                    self.leans[o] = min(c["lean_max"], self.leans[o] + inf)
+                    eff.deltas[o] = eff.deltas[o] + inf
+                cascade.append((k, moved))
         notes = []
+        names = {j["id"]: j["name"] for j in self.jurors}
+        for k, moved in cascade:
+            notes.append(self.case["texts"].get("cascade", "{name}松口了，其他人也开始动摇。").format(
+                name=names[k], n=len(moved)))
         if eff.manip:
             self.manip_strikes += 1
             notes.append(self.case["texts"]["manip"])
@@ -157,9 +176,11 @@ class Trial:
         votes = self.votes()
         self.stall = self.stall + 1 if votes <= self.last_votes else 0
         self.last_votes = votes
-        sp = Spoken(text, eff.deltas, reactions, notes, votes)
+        sp = Spoken(text, eff.deltas, reactions, notes, votes,
+                    [{"juror": k, "moved": m} for k, m in cascade])
         self.history.append({"text": text, "deltas": eff.deltas, "quality": jd.quality,
                              "argument": jd.argument, "manip": jd.manip, "recite": round(jd.recite, 3), "incomplete": round(jd.incomplete, 3),
+                             "cascade": [k for k, _ in cascade],
                              "hits": {k: round(v, 3) for k, v in jd.hits.items()},
                              "dislikes": {k: round(v, 3) for k, v in jd.dislikes.items()}, "votes": votes})
         return sp

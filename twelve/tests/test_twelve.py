@@ -154,6 +154,21 @@ class TrialTests(unittest.TestCase):
         self.assertEqual(v["best"]["text"], "打动秀兰林护士的一句")
         self.assertIn("秀兰", v["best"]["moved"])
 
+    def test_hard_juror_flipping_sways_the_undecided_once(self):
+        for j in self.t.jurors:
+            if j["id"] == "lin":
+                j["influence"] = 0.4
+        self.t.leans["lin"] = -0.1
+        before = dict(self.t.leans)
+        sp = self.t.speak("打动林护士", jd(hits={"lin"}, quality=1.5))
+        self.assertEqual(sp.cascade[0]["juror"], "lin")
+        self.assertIn("han", sp.cascade[0]["moved"])
+        self.assertNotIn("ajie", sp.cascade[0]["moved"])            # 已经倾向无罪的人不算
+        self.assertGreater(self.t.leans["han"] - before["han"], 0.35)
+        self.t.leans["lin"] = -0.5
+        sp2 = self.t.speak("再打动一次", jd(hits={"lin"}, quality=1.5, argument="x"))
+        self.assertEqual(sp2.cascade, [])                             # 每人只触发一次
+
     def test_timer_and_verdict(self):
         self.t.begin()
         self.clock.t += self.case["config"]["time_limit"] + 1
@@ -335,6 +350,17 @@ class LogTests(unittest.TestCase):
         self.assertTrue(r.get("over"))
         v = [e for e in self.events() if e["event"] == "verdict"]
         self.assertEqual(v[0]["reason"], "timeout")
+
+    def test_admin_code_opens_the_beta_court(self):
+        app = self.srv.RequestHandlerClass.app
+        app.guard.code = "player"
+        r = self.call("/api/new", {"code": "adm"})
+        self.assertEqual(r["channel"], "beta")
+        self.cookie = None
+        r = self.call("/api/new", {"code": "player"})
+        self.assertEqual(r["channel"], "release")
+        chans = [e.get("channel") for e in self.events() if e["event"] == "open"]
+        self.assertEqual(chans, ["beta", "release"])
 
     def test_wrong_code_is_logged_as_refused(self):
         self.srv.RequestHandlerClass.app.guard.code = "abc"

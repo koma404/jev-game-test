@@ -29,6 +29,28 @@ def load_case(name: str = "case1") -> dict:
         return json.load(f)
 
 
+def beta_path(name: str = "case1") -> Path:
+    p = Path(name) if name.endswith(".json") else HERE / "cases" / f"{name}.json"
+    return p.with_name(p.stem + ".beta.json")
+
+
+def merge_case(case: dict, patch: dict) -> dict:
+    """内测版 = 发布版 + 补丁：config / texts 按键覆盖，jurors 按 id 覆盖字段，其余键整体替换。"""
+    out = json.loads(json.dumps(case))
+    for k, v in patch.items():
+        if k.startswith("_"):
+            continue                                   # _note 之类的说明
+        if k in ("config", "texts") and isinstance(v, dict):
+            out[k].update(v)
+        elif k == "jurors" and isinstance(v, list):
+            by_id = {j["id"]: j for j in out["jurors"]}
+            for pj in v:
+                by_id[pj["id"]].update(pj)
+        else:
+            out[k] = v
+    return out
+
+
 def make_client(kind: str, case: dict):
     from game.jev_client import RealJev
     if kind == "mock" or (kind == "auto" and not RealJev.available()):
@@ -60,6 +82,7 @@ class Court:
         self.hints = 0
         self.ended = False
         self.lat = {"jev": [], "server": [], "browser": []}   # 本局每次预览的耗时（毫秒）
+        self.channel = "release"         # release = 发布版；beta = 用管理口令进来的内测版
 
     def judged(self, text: str):
         """返回 (判断, 是否命中缓存)。"""
@@ -77,7 +100,7 @@ class Court:
 
     def log(self, event, **fields):
         if self.logbook:
-            self.logbook.write(event, cid=self.cid, player=self.player, **fields)
+            self.logbook.write(event, cid=self.cid, player=self.player, channel=self.channel, **fields)
 
     def end(self, verdict: dict, reason: str):
         """裁决只记一次（主动结束、时间到、说话时时间到，都会走到这里）。"""
@@ -167,6 +190,10 @@ class App:
         self.case = load_case(args.case)
         self.client = make_client(args.jev, self.case)
         self.judge = Judge(self.case, self.client)
+        # 内测通道：用管理口令开庭的进内测版（发布版 + cases/<case>.beta.json 补丁）；没有补丁就和发布版一样
+        bp = beta_path(args.case)
+        self.beta_case = merge_case(self.case, json.load(open(bp, encoding="utf-8"))) if bp.exists() else self.case
+        self.beta_judge = Judge(self.beta_case, self.client) if bp.exists() else self.judge
         self.log_dir = args.log_dir
         self.admin_code = getattr(args, "admin_code", "") or os.environ.get("TWELVE_ADMIN_CODE", "")
         self.logbook = Logbook(args.log_dir, echo=getattr(args, "log_echo", True),
@@ -181,7 +208,7 @@ class App:
         self.guard = Guard(getattr(args, "access_code", "") or os.environ.get("TWELVE_ACCESS_CODE", ""),
                            getattr(args, "daily_budget", 1.0), getattr(args, "max_courts_per_ip", 6), state)
 
-    def court(self, sid, create=False, player="?"):
+    def court(self, sid, create=False, player="?", beta=False):
         now = time.time()
         with self.lock:
             for k in [k for k, c in self.courts.items() if now - c.seen > IDLE_SECONDS]:
@@ -197,7 +224,11 @@ class App:
             if sid not in self.courts and len(self.courts) >= self.max_sessions:
                 return sid, None
             sid = sid if sid in self.courts else secrets.token_hex(16)
-            self.courts[sid] = Court(self.case, self.judge, self.logbook, player)
+            if beta:
+                self.courts[sid] = Court(self.beta_case, self.beta_judge, self.logbook, player)
+                self.courts[sid].channel = "beta"
+            else:
+                self.courts[sid] = Court(self.case, self.judge, self.logbook, player)
             self.courts[sid].on_cost = self.guard.charge
             return sid, self.courts[sid]
 
@@ -232,7 +263,8 @@ class App:
             return 200, {}, sid
         if path == "/api/new":
             refused, r = None, None
-            if not self.guard.code_ok(body.get("code")):
+            beta = bool(self.admin_code) and secrets.compare_digest(str(body.get("code") or ""), self.admin_code)
+            if not beta and not self.guard.code_ok(body.get("code")):
                 refused = "code" if body.get("code") else None     # 第一次进来没带口令不算被拦
                 r = 401, {"need_code": True, "error": "请输入访问口令。" if not body.get("code") else "口令不对。"}, sid
             elif self.guard.over_budget():
@@ -240,12 +272,12 @@ class App:
             elif not self.guard.allow_open(ip):
                 refused, r = "per_ip", (429, {"error": "你开庭太频繁了，休息一会儿再来。"}, sid)
             else:
-                sid, c = self.court(sid, create=True, player=player)
+                sid, c = self.court(sid, create=True, player=player, beta=beta)
                 if c is None:
                     refused, r = "full", (503, {"error": "同时开庭的人太多了，请稍后再试。"}, sid)
                 else:
                     c.log("open", ua=str(ua)[:200], courts=len(self.courts))
-                    r = 200, {"case": public_case(self.case), "backend": self.client.name,
+                    r = 200, {"case": public_case(c.case), "backend": self.client.name, "channel": c.channel,
                               "leans": c.trial.leans, "votes": c.trial.votes()}, sid
             if refused:
                 self.logbook.write("refused", player=player, reason=refused)
@@ -281,8 +313,8 @@ class App:
         text = str(body.get("text", "")).strip()
         if t.over:
             return over()
-        if len(text) > self.case["config"]["max_chars"]:
-            return 200, {"error": self.case["texts"]["too_long"].format(n=self.case["config"]["max_chars"])}, sid
+        if len(text) > c.case["config"]["max_chars"]:
+            return 200, {"error": c.case["texts"]["too_long"].format(n=c.case["config"]["max_chars"])}, sid
         if path in ("/api/preview", "/api/say") and self.guard.over_budget():
             return 200, {"error": "今天的体验额度已经用完了。可以结束陈词看看裁决。"}, sid
         if path == "/api/preview":
@@ -294,7 +326,7 @@ class App:
                 return 200, {"skip": True}, sid
             c.last_preview = now
             if len(text) < 4:
-                return 200, {"faces": {j["id"]: 0 for j in self.case["jurors"]}, "ms": 0, "text": text}, sid
+                return 200, {"faces": {j["id"]: 0 for j in c.case["jurors"]}, "ms": 0, "text": text}, sid
             jd, cached = c.judged(text)
             faces = t.preview(jd)
             srv = (time.time() - t0) * 1000
@@ -323,7 +355,7 @@ class App:
                       jev_ms=None if cached else round(jd.ms), server_ms=round((time.time() - t0) * 1000),
                       leans={k: round(v, 2) for k, v in t.leans.items()}, time_left=round(t.time_left(), 1))
                 auto = None
-                cfg = self.case["config"]
+                cfg = c.case["config"]
                 if (t.stall >= cfg.get("stall_hint", 0) > 0 and sp.votes < cfg["win_votes"]
                         and not jd.manip > cfg["manip_threshold"]):
                     auto = t.hint(free=True)        # 连着几句没涨票：主动送一次提示，不扣时间
@@ -332,7 +364,7 @@ class App:
                     c.log("hint", juror=auto["juror"], level=t.hinted.get(auto["juror"]), auto=True,
                           time_left=round(t.time_left(), 1))
                 return 200, {"faces": t.faces(sp.deltas), "reactions": sp.reactions, "notes": sp.notes,
-                             "votes": sp.votes, "need": self.case["config"]["win_votes"], "leans": t.leans, "ms": round(jd.ms),
+                             "votes": sp.votes, "need": c.case["config"]["win_votes"], "leans": t.leans, "ms": round(jd.ms),
                              "auto_hint": auto, "time_left": t.time_left()}, sid
             finally:
                 c.say_lock.release()
