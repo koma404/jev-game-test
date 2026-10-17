@@ -378,7 +378,7 @@ window.onerror=function(msg, src, line, col){
     if(introKey && (e.keyCode===32 || e.keyCode===13 || e.keyCode===39)){ e.preventDefault(); introKey(); }
   });
   // ---- 配乐：twelve/audio/ 里有文件才有；开场 / 庭审 / 反转三段，淡入淡出，可静音 ----
-  var M={}, cur=null, curSlot='', pending=null, muted=false;
+  var M={}, cur=null, curSlot='', audioWaiting=null, muted=false;   // 别和预览排队用的 pending 重名
   try{ muted=localStorage.getItem('twelve_mute')==='1'; }catch(e){}
   function fade(a, to, done){
     var t=setInterval(function(){ var v=a.volume+(to>a.volume?0.04:-0.04);
@@ -390,10 +390,10 @@ window.onerror=function(msg, src, line, col){
     if(cur){ var old=cur; fade(old, 0, function(){ old.pause(); }); cur=null; }
     if(muted || !slot || !M[slot]) return;
     var a=new Audio(M[slot]); a.loop=true; a.volume=0; cur=a;
-    var pr=a.play(); if(pr && pr['catch']) pr['catch'](function(){ pending=a; });   // 浏览器要求先有一次点击才能出声
+    var pr=a.play(); if(pr && pr['catch']) pr['catch'](function(){ audioWaiting=a; });   // 浏览器要求先有一次点击才能出声
     fade(a, 0.5);
   }
-  function unblock(){ if(pending){ var a=pending; pending=null; var pr=a.play(); if(pr && pr['catch']) pr['catch'](function(){}); } }
+  function unblock(){ if(audioWaiting){ var a=audioWaiting; audioWaiting=null; var pr=a.play(); if(pr && pr['catch']) pr['catch'](function(){}); } }
   document.addEventListener('click', unblock, true); document.addEventListener('keydown', unblock, true);
   $('mute').onclick=function(){
     muted=!muted; try{ localStorage.setItem('twelve_mute', muted?'1':'0'); }catch(e){}
