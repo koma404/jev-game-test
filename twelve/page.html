@@ -60,6 +60,13 @@ button.case .won{color:var(--acq)}
 #intro .cap{width:640px;max-width:100%;margin-top:18px;min-height:3.4em;font:20px/1.7 "Courier New","Microsoft YaHei",monospace;letter-spacing:1px}
 #intro .tip{color:#666;font-size:12px;margin-top:6px}
 #skipintro{position:absolute;top:12px;right:14px;background:transparent;border:1px solid #555;color:#aaa;padding:5px 12px;font-size:13px}
+/* 开庭 / 闭庭的大字章 */
+#stamp{position:fixed;left:0;top:0;right:0;bottom:0;z-index:55;display:none;align-items:center;justify-content:center;flex-direction:column;background:rgba(10,8,6,.55);pointer-events:none}
+#stamp b{font:bold 64px/1.2 "STKaiti","KaiTi","Songti SC","SimSun",serif;letter-spacing:18px;color:#f3e2b8;border:4px solid #b9473b;padding:6px 12px 6px 30px;border-radius:6px;background:rgba(80,20,14,.55);transform:scale(1.6) rotate(-4deg);opacity:0;transition:transform .22s ease-out,opacity .22s}
+#stamp.on b{transform:scale(1) rotate(-4deg);opacity:1}
+#stamp span{margin-top:18px;color:#fff6dc;font-size:16px;font-weight:bold;opacity:0;transition:opacity .4s .25s;background:rgba(20,14,10,.75);padding:4px 12px;border-radius:4px}
+#stamp.on span{opacity:1}
+@media (max-width:640px){ #stamp b{font-size:44px;letter-spacing:10px} }
 #mute{display:none;padding:2px 9px;font-size:14px;align-self:center}
 @media (max-width:640px){ #intro .cap{font-size:16px} }
 #main{display:flex;margin-top:12px}
@@ -160,6 +167,7 @@ button:disabled{opacity:.5;cursor:default}
   </div>
 </div>
 <div id="toast"></div>
+<div id="stamp"><b id="stampword"></b><span id="stampsub"></span></div>
 <div id="intro"><button id="skipintro">跳过 ›</button><canvas id="introcv" width="160" height="90"></canvas><div class="cap" id="introcap"></div><div class="tip">点击 / 空格 / 回车 继续</div></div>
 <div id="shade"></div>
 <div id="overlay"><div class="box" id="box"></div></div>
@@ -327,6 +335,10 @@ window.onerror=function(msg, src, line, col){
   function finish(v){
     if(over) return; over=true; clearInterval(timerId); music('');
     $('in').disabled=true; $('go').disabled=true; $('rest').disabled=true;
+    gavel(3); stamp('闭 庭', '陪审团退庭商议，宣读裁决……', 1700);
+    setTimeout(function(){ showVerdict(v); }, 1900);
+  }
+  function showVerdict(v){
     var h='<h2>'+(v.acquit?'无罪':'有罪')+'（'+v.votes+' / 12 判无罪）</h2><p id="vtext"></p>';
     var stat=[];
     if(v.says!=null) stat.push('说出口 '+v.says+' 句');
@@ -404,6 +416,38 @@ window.onerror=function(msg, src, line, col){
     this.textContent=muted?'♪×':'♪'; this.style.opacity=muted?0.5:1;
     var s=curSlot; curSlot=''; if(muted){ if(cur){ var o=cur; fade(o,0,function(){ o.pause(); }); cur=null; } curSlot=s; } else music(s);
   };
+  // ---- 木槌声：浏览器现场合成（低沉的"咚" + 木头的"嗒"），不用音频文件；静音时不响 ----
+  var actx=null;
+  function knock(c, t, vol){
+    var o=c.createOscillator(), g=c.createGain();               // 槌头砸下去的闷响
+    o.type='sine'; o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(65, t+0.12);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.75*vol, t+0.005); g.gain.exponentialRampToValueAtTime(0.001, t+0.28);
+    o.connect(g); g.connect(c.destination); o.start(t); o.stop(t+0.3);
+    var w=c.createOscillator(), wg=c.createGain();              // 木头的共鸣
+    w.type='triangle'; w.frequency.setValueAtTime(430, t);
+    wg.gain.setValueAtTime(0.0001, t); wg.gain.exponentialRampToValueAtTime(0.3*vol, t+0.003); wg.gain.exponentialRampToValueAtTime(0.001, t+0.11);
+    w.connect(wg); wg.connect(c.destination); w.start(t); w.stop(t+0.12);
+    var len=Math.floor(c.sampleRate*0.05), buf=c.createBuffer(1, len, c.sampleRate), d=buf.getChannelData(0);
+    for(var i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len, 3);   // 敲击瞬间的"嗒"
+    var n=c.createBufferSource(), f=c.createBiquadFilter(), ng=c.createGain();
+    n.buffer=buf; f.type='bandpass'; f.frequency.value=1900; f.Q.value=1.2; ng.gain.value=0.7*vol;
+    n.connect(f); f.connect(ng); ng.connect(c.destination); n.start(t);
+  }
+  function gavel(times){
+    if(muted) return;
+    try{
+      var AC=window.AudioContext||window.webkitAudioContext; if(!AC) return;
+      actx=actx||new AC(); if(actx.state==='suspended' && actx.resume) actx.resume();
+      for(var i=0;i<times;i++) knock(actx, actx.currentTime+0.05+i*0.34, i===times-1?1:0.75);
+    }catch(e){}
+  }
+  var stampT=0;
+  function stamp(word, sub, ms){
+    $('stampword').textContent=word; $('stampsub').textContent=sub||'';
+    var el=$('stamp'); el.style.display='flex'; el.className='';
+    setTimeout(function(){ el.className='on'; }, 20);
+    clearTimeout(stampT); stampT=setTimeout(function(){ el.className=''; setTimeout(function(){ el.style.display='none'; }, 250); }, ms||1500);
+  }
   // ---- 关卡：选关、通关记录（只存在玩家自己的浏览器里）----
   function go(id){ location.href=location.pathname+'?'+(code?'code='+encodeURIComponent(code)+'&':'')+(id?'case='+encodeURIComponent(id):''); }
   function best(id){ try{ return JSON.parse(localStorage.getItem('twelve_best_'+id)||'null'); }catch(e){ return null; } }
@@ -459,6 +503,7 @@ window.onerror=function(msg, src, line, col){
         $('again').onclick=function(){ location.reload(); }; return;
       }
       $('overlay').style.display='none'; started=true; music('trial');
+      gavel(2); stamp('开 庭', '审判长：请辩护人开始终局陈词。', 1500);
       if(r.max_says){ saysLeft=r.max_says; $('saysleft').textContent=saysLeft; $('saysbox').style.display='inline'; }
       deadline=new Date().getTime()+r.time_left*1000; tick(); timerId=setInterval(tick, 250); setInterval(poll, 50);
       $('in').disabled=false; $('go').disabled=false; $('rest').disabled=false; $('hint').disabled=false;
