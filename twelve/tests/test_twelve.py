@@ -269,6 +269,9 @@ class ServerTests(unittest.TestCase):
         intro = r["case"]["intro"]
         self.assertEqual(len(intro), 4)
         self.assertTrue(all(sh["pix"] and sh["pix"]["w"] == 160 and sh["text"] for sh in intro))
+        from twelve.server import load_art, load_case
+        for case in ("case1", "case2"):                      # 每关的镜头都生成了（漏跑 python -m twelve.art.caseN 时这里报错）
+            self.assertTrue(all(load_art(sh["art"]) for sh in load_case(case)["intro"]), case)
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         for bad in ("/audio/README.md", "/audio/..%2Fserver.py", "/audio/intro.ogg", "/audio/other.mp3"):   # 只认三个槽位、扩展名要对上
             with self.assertRaises(urllib.error.HTTPError):
