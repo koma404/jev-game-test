@@ -176,7 +176,7 @@ class Court:
         self.ended = True
         t = self.trial
         used = None if t.started_at is None else round(t.cfg["time_limit"] - t.time_left(), 1)
-        self.log("verdict", reason=reason, acquit=verdict["acquit"], votes=verdict["votes"],
+        self.log("verdict", reason=reason, mode=t.mode, acquit=verdict["acquit"], votes=verdict["votes"],
                  leans={k: round(v, 2) for k, v in t.leans.items()},
                  says=len(t.history), previews=self.previews, hints=self.hints, manip=t.manip_strikes,
                  used_s=used, cost=round(self.cost, 6),
@@ -190,6 +190,8 @@ def public_case(case: dict) -> dict:
             "intro": [{"text": s.get("text", ""), "pix": load_art(s["art"]) if s.get("art") else None}
                       for s in case.get("intro", [])],
             "time_limit": case["config"]["time_limit"], "win_votes": case["config"]["win_votes"],
+            "modes": {k: {"label": v.get("label", k), "time_limit": v.get("time_limit", case["config"]["time_limit"]),
+                          "max_says": v.get("max_says", 0)} for k, v in case.get("modes", {}).items()},
             "max_chars": case["config"]["max_chars"], "debounce": case["config"]["preview_debounce_ms"],
             "swing_band": case["config"].get("swing_band", 0), "hint_cost": case["config"].get("hint_cost", 10),
             "jurors": [{"id": j["id"], "name": j["name"], "role": j["role"], "persona": j["persona"]}
@@ -318,6 +320,16 @@ class App:
         return out
 
     @staticmethod
+    def _finish_if_out(c):
+        """简单模式说满句数：这句话的反应照常返回，同时附上裁决（页面看完反应再显示）。"""
+        t = c.trial
+        if t.out_of_says:
+            v = t.verdict()
+            c.end(v, "says")
+            return v
+        return None
+
+    @staticmethod
     def _events(c, force=False) -> dict:
         fired = c.check_events(force)
         if not fired:
@@ -423,11 +435,12 @@ class App:
 
         if path == "/api/begin":
             if t.started_at is None:
-                c.log("begin")
+                t.set_mode(str(body.get("mode") or ""))
+                c.log("begin", mode=t.mode)
                 if c.channel != "beta":
                     self.guard.record_open(getattr(c, "ip", None))
             t.begin()
-            return 200, {"time_left": t.time_left()}, sid
+            return 200, {"time_left": t.time_left(), "mode": t.mode, "max_says": t.cfg.get("max_says", 0)}, sid
         if path == "/api/hint":
             if t.over:
                 return over()
@@ -491,6 +504,7 @@ class App:
                       jev_ms=None if cached else round(jd.ms), server_ms=round((time.time() - t0) * 1000),
                       leans={k: round(v, 2) for k, v in t.leans.items()}, time_left=round(t.time_left(), 1))
                 ev = self._events(c)                 # 说够几句后触发的事件（检方出示新证据之类）
+                fin = self._finish_if_out(c)         # 简单模式说满句数就宣判
                 auto = None
                 cfg = c.case["config"]
                 if (not ev and t.stall >= cfg.get("stall_hint", 0) > 0 and sp.votes < cfg["win_votes"]
@@ -502,7 +516,8 @@ class App:
                           time_left=round(t.time_left(), 1))
                 return 200, {"faces": t.faces(sp.deltas), "reactions": sp.reactions, "notes": sp.notes,
                              "votes": t.votes(), "need": c.case["config"]["win_votes"], "leans": t.leans, "ms": round(jd.ms),
-                             "auto_hint": auto, **ev, "time_left": t.time_left()}, sid
+                             "auto_hint": auto, **ev, "time_left": t.time_left(),
+                             **({"verdict": fin} if fin else {})}, sid
             finally:
                 c.say_lock.release()
         return 404, {"error": "not found"}, sid

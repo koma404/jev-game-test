@@ -274,6 +274,25 @@ class ServerTests(unittest.TestCase):
             with self.assertRaises(urllib.error.HTTPError):
                 opener.open(self.base + bad)
 
+    def test_easy_mode_five_minutes_five_lines(self):
+        self.call("/api/new")
+        s, r = self.call("/api/begin", {"mode": "easy"})
+        self.assertEqual(r["mode"], "easy")
+        self.assertAlmostEqual(r["time_left"], 300, delta=1)
+        self.assertEqual(r["max_says"], 5)
+        for i in range(5):
+            s, r = self.call("/api/say", {"text": f"第{i}句：监控里看不清脸，凭什么是张伟"})
+            self.assertIn("reactions", r)                 # 第五句的反应照常返回
+        self.assertIn("verdict", r)                       # 同时附上裁决
+        s, r = self.call("/api/say", {"text": "还想再说一句"})
+        self.assertTrue(r.get("over"))
+
+    def test_normal_mode_unchanged(self):
+        self.call("/api/new")
+        s, r = self.call("/api/begin", {"mode": "nonsense"})
+        self.assertEqual((r["mode"], r["max_says"]), ("normal", 0))
+        self.assertAlmostEqual(r["time_left"], 240, delta=1)
+
     def test_page_served_with_query_string(self):
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         with opener.open(self.base + "/?code=abc") as r:

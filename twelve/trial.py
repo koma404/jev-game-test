@@ -66,6 +66,7 @@ class Trial:
         self.moved_most: dict = {}  # 陪审员 -> (最大正向变化, 那句话)，结局页"被这句打动"用
         self.cascaded: set = set()  # 已经触发过连带的硬骨头
         self.events: list = []      # 已经发生的事件 id
+        self.mode = "normal"
 
     # ---- 时间 ----
     def begin(self):
@@ -79,7 +80,22 @@ class Trial:
 
     @property
     def over(self) -> bool:
-        return self.rested or (self.started_at is not None and self.time_left() <= 0)
+        return self.rested or (self.started_at is not None and self.time_left() <= 0) or self.out_of_says
+
+    @property
+    def out_of_says(self) -> bool:
+        """简单模式限句数：说满 max_says 句就宣判。"""
+        n = self.cfg.get("max_says", 0)
+        return bool(n) and len(self.history) >= n
+
+    def set_mode(self, mode: str) -> bool:
+        """开庭前选模式（如简单模式：时间更长、限句数），把该模式的参数盖到这一庭的配置上。"""
+        m = self.case.get("modes", {}).get(mode)
+        if not m or self.started_at is not None:
+            return False
+        self.cfg.update({k: v for k, v in m.items() if k != "label"})
+        self.mode = mode
+        return True
 
     # ---- 计算 ----
     @staticmethod

@@ -133,6 +133,7 @@ button:disabled{opacity:.5;cursor:default}
       <h1 id="title">十二人</h1>
       <span class="stat" id="timer">剩余 <b id="t">--:--</b></span>
       <span class="stat">无罪 <b id="votes">0</b>/12 · 需 <span id="need">7</span></span>
+      <span class="stat" id="saysbox" style="display:none">剩 <b id="saysleft">5</b> 句</span>
       <button id="mute" class="ghost sm" title="配乐开关">♪</button>
       <span id="ms"></span>
     </header>
@@ -270,7 +271,7 @@ window.onerror=function(msg, src, line, col){
   }
 
   function say(){
-    if(!started||over) return;
+    if(!started||over||ending) return;
     var text=$('in').value.replace(/^\s+|\s+$/g,''); if(!text) return;
     $('in').value=''; $('count').textContent=''; lastSent=''; seq++;
     $('go').disabled=true; log('you', text);
@@ -292,8 +293,11 @@ window.onerror=function(msg, src, line, col){
       for(var m=0;m<r.notes.length;m++) lines.push(r.notes[m]);
       log('tip', head);
       if(r.auto_hint && r.auto_hint.text){ lines.push('【免费提示】'+r.auto_hint.text); log('tip', '【免费提示】'+r.auto_hint.text); if(r.auto_hint.juror) highlight(r.auto_hint.juror); }
+      if(saysLeft){ saysLeft--; $('saysleft').textContent=saysLeft;
+        if(r.verdict){ ending=true; lines.push('这是你的最后一句。陪审团退庭商议……'); } }
       banner(lines);
       handleEvents(r, lines);
+      if(r.verdict){ ending=true; $('in').disabled=true; $('go').disabled=true; setTimeout(function(){ finish(r.verdict); }, 2800); }
       $('chips').innerHTML=''; lastActive=new Date().getTime(); idleTipped=false;
     });
   }
@@ -446,14 +450,16 @@ window.onerror=function(msg, src, line, col){
   }
   function esc(s){ var d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
 
-  function begin(){
-    post('/api/begin', {}, function(s, r){
+  var saysLeft=0, ending=false;
+  function begin(mode){
+    post('/api/begin', {mode: mode||''}, function(s, r){
       if(s!==200 || !r.time_left){
         $('box').innerHTML='<h2>开庭失败</h2><p></p><p><button id="again">重新开庭</button></p>';
         $('box').getElementsByTagName('p')[0].textContent=(r.error||('服务器返回 '+s))+'（服务可能刚重启过）';
         $('again').onclick=function(){ location.reload(); }; return;
       }
       $('overlay').style.display='none'; started=true; music('trial');
+      if(r.max_says){ saysLeft=r.max_says; $('saysleft').textContent=saysLeft; $('saysbox').style.display='inline'; }
       deadline=new Date().getTime()+r.time_left*1000; tick(); timerId=setInterval(tick, 250); setInterval(poll, 50);
       $('in').disabled=false; $('go').disabled=false; $('rest').disabled=false; $('hint').disabled=false;
       log('tip', '开庭了。在下面输入一句辩护的话，停一下，看看谁点头、谁皱眉；满意了再按回车。');
@@ -524,7 +530,7 @@ window.onerror=function(msg, src, line, col){
       '<li>打一句辩护的话，<b>停一下</b>，看 12 张脸谁点头、谁皱眉。</li>'+
       '<li>满意了按<b>回车</b>，这句话才算说出口。</li>'+
       '<li>'+Math.round(C.time_limit/60)+' 分钟内让至少 <b>'+C.win_votes+'</b> 人倾向无罪（<span style="color:var(--acq)">绿框</span>）。'+(phone?'事实在「案卷」里。':'事实在右边的案卷里。')+'</li></ol>'+
-      '<p><button id="start">开始陈词</button> <button id="more" class="ghost sm">'+(phone?'详细说明 ▾':'收起说明 ▴')+'</button>'+(hasIntro?' <button id="replay" class="ghost sm">重看开场</button>':'')+'</p>'+
+      '<p><button id="start">开始陈词</button>'+(C.modes&&C.modes.easy?' <button id="easy" class="ghost">'+esc(C.modes.easy.label)+'（'+Math.round(C.modes.easy.time_limit/60)+' 分钟 · '+C.modes.easy.max_says+' 句）</button>':'')+' <button id="more" class="ghost sm">'+(phone?'详细说明 ▾':'收起说明 ▴')+'</button>'+(hasIntro?' <button id="replay" class="ghost sm">重看开场</button>':'')+'</p>'+
       '<div id="detail" style="display:'+(phone?'none':'block')+'">'+
       '<h3>看懂陪审员</h3>'+
       '<div class="legend"><span>'+face(1)+'点头</span><span>'+face(0)+'没感觉</span><span>'+face(-1)+'皱眉</span></div>'+
@@ -538,7 +544,8 @@ window.onerror=function(msg, src, line, col){
       '<li>别想着下命令——陪审员不吃这一套。时间一开始就不会停。</li></ul></div>';
     $('more').onclick=function(){ var d=$('detail'), open=d.style.display==='none';
       d.style.display=open?'block':'none'; this.textContent=open?'收起说明 ▴':'详细说明 ▾'; };
-    $('brief').textContent=C.brief; $('overlay').style.display='flex'; $('start').onclick=begin;
+    $('brief').textContent=C.brief; $('overlay').style.display='flex'; $('start').onclick=function(){ begin(''); };
+    if($('easy')) $('easy').onclick=function(){ begin('easy'); };
     if(hasIntro) $('replay').onclick=function(){ $('overlay').style.display='none'; playIntro(C.intro, showBrief); };
     };
     if(hasIntro && !seenIntro(C.id)){ $('overlay').style.display='none'; playIntro(C.intro, showBrief); } else showBrief();
