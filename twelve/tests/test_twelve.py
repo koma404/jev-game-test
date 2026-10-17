@@ -264,6 +264,16 @@ class ServerTests(unittest.TestCase):
         finally:
             os.environ.pop("TWELVE_TRUST_PROXY")
 
+    def test_intro_shots_ship_with_the_case_and_audio_is_locked_down(self):
+        s, r = self.call("/api/new")
+        intro = r["case"]["intro"]
+        self.assertEqual(len(intro), 4)
+        self.assertTrue(all(sh["pix"] and sh["pix"]["w"] == 160 and sh["text"] for sh in intro))
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        for bad in ("/audio/README.md", "/audio/..%2Fserver.py", "/audio/intro.mp3"):   # 只认三个槽位，且文件得存在
+            with self.assertRaises(urllib.error.HTTPError):
+                opener.open(self.base + bad)
+
     def test_page_served_with_query_string(self):
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         with opener.open(self.base + "/?code=abc") as r:

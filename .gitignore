@@ -8,3 +8,7 @@ cloudflared.exe
 
 # cloudflared 运行时在当前目录生成的空配置
 /config.yml
+
+# 配乐：自己放进来本地用，不进仓库（版权曲不能分发）
+twelve/audio/*
+!twelve/audio/README.md

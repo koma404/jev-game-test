@@ -21,6 +21,29 @@ from .trial import Trial
 
 HERE = Path(__file__).parent
 IDLE_SECONDS = 2 * 3600
+ART = HERE / "art"            # 开场镜头的像素画（python -m twelve.art.case1 生成）
+AUDIO = HERE / "audio"        # 配乐：自己放文件进来（不进仓库），没有就静音
+MUSIC_SLOTS = ("intro", "trial", "reversal")
+AUDIO_TYPES = {".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".m4a": "audio/mp4", ".wav": "audio/wav"}
+_art_cache: dict = {}
+
+
+def load_art(name: str):
+    if name not in _art_cache:
+        p = ART / f"{name}.json"
+        _art_cache[name] = json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+    return _art_cache[name]
+
+
+def music_files() -> dict:
+    """twelve/audio/ 里有 intro / trial / reversal（.mp3 .ogg .m4a .wav 任一）就用。"""
+    out = {}
+    for slot in MUSIC_SLOTS:
+        for ext in AUDIO_TYPES:
+            if (AUDIO / f"{slot}{ext}").exists():
+                out[slot] = f"/audio/{slot}{ext}"
+                break
+    return out
 
 
 def load_case(name: str = "case1", folder=None) -> dict:
@@ -155,6 +178,8 @@ def public_case(case: dict) -> dict:
     # 只给玩家看得见的东西：陪审员在意什么、讨厌什么是要靠观察去猜的
     return {"id": case.get("id"), "title": case["title"], "brief": case["brief"], "dossier": case["dossier"],
             "examples": case.get("examples", []), "stars": case.get("stars", 1),
+            "intro": [{"text": s.get("text", ""), "pix": load_art(s["art"]) if s.get("art") else None}
+                      for s in case.get("intro", [])],
             "time_limit": case["config"]["time_limit"], "win_votes": case["config"]["win_votes"],
             "max_chars": case["config"]["max_chars"], "debounce": case["config"]["preview_debounce_ms"],
             "swing_band": case["config"].get("swing_band", 0), "hint_cost": case["config"].get("hint_cost", 10),
@@ -352,6 +377,7 @@ class App:
                 else:
                     c.log("open", ua=str(ua)[:200], courts=len(self.courts))
                     r = 200, {"case": public_case(c.case), "backend": self.backend, "channel": c.channel,
+                              "music": music_files(),
                               "cases": len(self.visible_cases(beta)),
                               "leans": c.trial.leans, "votes": c.trial.votes()}, sid
             if refused:
@@ -495,6 +521,19 @@ def make_handler(app: App):
             path, _, query = self.path.partition("?")
             if path in ("/", "/index.html"):   # 分享链接会带 ?code=口令
                 self._send(200, page, "text/html; charset=utf-8")
+            elif path.startswith("/audio/"):
+                name = path[len("/audio/"):]
+                f = AUDIO / name
+                if name.split(".")[0] in MUSIC_SLOTS and f.suffix in AUDIO_TYPES and "/" not in name and f.exists():
+                    data = f.read_bytes()
+                    self.send_response(200)
+                    self.send_header("Content-Type", AUDIO_TYPES[f.suffix])
+                    self.send_header("Content-Length", str(len(data)))
+                    self.send_header("Cache-Control", "max-age=86400")
+                    self.end_headers()
+                    self.wfile.write(data)
+                else:
+                    self._send(404, b"not found", "text/plain")
             elif path in ("/admin", "/admin/log") and app.admin_ok(query):
                 if path == "/admin":
                     self._send(200, app.admin_page(query).encode("utf-8"), "text/html; charset=utf-8")

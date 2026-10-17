@@ -54,6 +54,14 @@ button.case .bl{display:block;font-size:14px;color:var(--fg)} button.case .meta{
 button.case .won{color:var(--acq)}
 #facts li.new{background:var(--swingbg);border-left:3px solid var(--swing);padding-left:6px}
 .evd li{margin:4px 0;font-weight:bold}
+/* 开场镜头：仿像素游戏开场，黑底白框，打字机字幕 */
+#intro{position:fixed;left:0;top:0;right:0;bottom:0;z-index:60;background:#000;color:#fff;display:none;flex-direction:column;align-items:center;justify-content:center;padding:16px;cursor:pointer;-webkit-user-select:none;user-select:none}
+#intro canvas{width:640px;max-width:100%;height:auto;border:3px solid #fff;image-rendering:pixelated;image-rendering:crisp-edges;display:block;opacity:0;transition:opacity .25s}
+#intro .cap{width:640px;max-width:100%;margin-top:18px;min-height:3.4em;font:20px/1.7 "Courier New","Microsoft YaHei",monospace;letter-spacing:1px}
+#intro .tip{color:#666;font-size:12px;margin-top:6px}
+#skipintro{position:absolute;top:12px;right:14px;background:transparent;border:1px solid #555;color:#aaa;padding:5px 12px;font-size:13px}
+#mute{display:none;padding:2px 9px;font-size:14px;align-self:center}
+@media (max-width:640px){ #intro .cap{font-size:16px} }
 #main{display:flex;margin-top:12px}
 #main>.panel:first-child{flex:2;margin-right:12px} #main>.panel:last-child{flex:1}
 @media (max-width:760px){#main{display:block} #main>.panel:first-child{margin:0 0 12px}}
@@ -125,6 +133,7 @@ button:disabled{opacity:.5;cursor:default}
       <h1 id="title">十二人</h1>
       <span class="stat" id="timer">剩余 <b id="t">--:--</b></span>
       <span class="stat">无罪 <b id="votes">0</b>/12 · 需 <span id="need">7</span></span>
+      <button id="mute" class="ghost sm" title="配乐开关">♪</button>
       <span id="ms"></span>
     </header>
     <div id="grid"></div>
@@ -150,6 +159,7 @@ button:disabled{opacity:.5;cursor:default}
   </div>
 </div>
 <div id="toast"></div>
+<div id="intro"><button id="skipintro">跳过 ›</button><canvas id="introcv" width="160" height="90"></canvas><div class="cap" id="introcap"></div><div class="tip">点击 / 空格 / 回车 继续</div></div>
 <div id="shade"></div>
 <div id="overlay"><div class="box" id="box"></div></div>
 <script>
@@ -311,7 +321,7 @@ window.onerror=function(msg, src, line, col){
     if(r.events) handleEvents(r);     // 还有没发生的反转：先面对它，之后可以再点结束
   }); }
   function finish(v){
-    if(over) return; over=true; clearInterval(timerId);
+    if(over) return; over=true; clearInterval(timerId); music('');
     $('in').disabled=true; $('go').disabled=true; $('rest').disabled=true;
     var h='<h2>'+(v.acquit?'无罪':'有罪')+'（'+v.votes+' / 12 判无罪）</h2><p id="vtext"></p>';
     var stat=[];
@@ -333,6 +343,63 @@ window.onerror=function(msg, src, line, col){
     $('again').onclick=function(){ go(C.id); };
     if($('pick')) $('pick').onclick=function(){ go(''); };
   }
+  // ---- 开场镜头：像素画（调色板 + 行程编码，见 twelve/art/pix.py）----
+  var PIX_A='0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  function drawPix(cv, d){
+    cv.width=d.w; cv.height=d.h; var g=cv.getContext('2d'), x=0, y=0;
+    for(var i=0;i<d.rle.length;i+=2){
+      g.fillStyle=d.pal[PIX_A.indexOf(d.rle.charAt(i))]; var n=PIX_A.indexOf(d.rle.charAt(i+1))+1;
+      while(n>0){ var run=Math.min(n, d.w-x); g.fillRect(x,y,run,1); x+=run; n-=run; if(x>=d.w){ x=0; y++; } }
+    }
+  }
+  var introKey=null;
+  function seenIntro(id){ try{ return localStorage.getItem('twelve_intro_'+id)==='1'; }catch(e){ return false; } }
+  function playIntro(list, done){
+    var i=-1, full='', shown=0, timer=0, cv=$('introcv'), cap=$('introcap');
+    $('intro').style.display='flex'; music('intro');
+    function next(){
+      i++; if(i>=list.length) return end();
+      var sh=list[i]; cv.style.opacity=0;
+      setTimeout(function(){ if(sh.pix) drawPix(cv, sh.pix); cv.style.opacity=1; }, 200);
+      full='* '+sh.text; shown=0; cap.textContent=''; clearInterval(timer);
+      timer=setInterval(function(){ shown++; cap.textContent=full.slice(0, shown); if(shown>=full.length) clearInterval(timer); }, 55);
+    }
+    function step(){ if(shown<full.length){ shown=full.length; cap.textContent=full; clearInterval(timer); } else next(); }
+    function end(){
+      clearInterval(timer); introKey=null; $('intro').style.display='none';
+      try{ localStorage.setItem('twelve_intro_'+C.id, '1'); }catch(e){}
+      done();
+    }
+    $('intro').onclick=step; introKey=step;
+    $('skipintro').onclick=function(e){ if(e.stopPropagation) e.stopPropagation(); end(); };
+    next();
+  }
+  document.addEventListener('keydown', function(e){
+    if(introKey && (e.keyCode===32 || e.keyCode===13 || e.keyCode===39)){ e.preventDefault(); introKey(); }
+  });
+  // ---- 配乐：twelve/audio/ 里有文件才有；开场 / 庭审 / 反转三段，淡入淡出，可静音 ----
+  var M={}, cur=null, curSlot='', pending=null, muted=false;
+  try{ muted=localStorage.getItem('twelve_mute')==='1'; }catch(e){}
+  function fade(a, to, done){
+    var t=setInterval(function(){ var v=a.volume+(to>a.volume?0.04:-0.04);
+      if((to>a.volume&&v>=to)||(to<=a.volume&&v<=to)){ v=to; clearInterval(t); if(done) done(); }
+      a.volume=Math.max(0, Math.min(1, v)); }, 60);
+  }
+  function music(slot){
+    if(slot===curSlot) return; curSlot=slot;
+    if(cur){ var old=cur; fade(old, 0, function(){ old.pause(); }); cur=null; }
+    if(muted || !slot || !M[slot]) return;
+    var a=new Audio(M[slot]); a.loop=true; a.volume=0; cur=a;
+    var pr=a.play(); if(pr && pr['catch']) pr['catch'](function(){ pending=a; });   // 浏览器要求先有一次点击才能出声
+    fade(a, 0.5);
+  }
+  function unblock(){ if(pending){ var a=pending; pending=null; var pr=a.play(); if(pr && pr['catch']) pr['catch'](function(){}); } }
+  document.addEventListener('click', unblock, true); document.addEventListener('keydown', unblock, true);
+  $('mute').onclick=function(){
+    muted=!muted; try{ localStorage.setItem('twelve_mute', muted?'1':'0'); }catch(e){}
+    this.textContent=muted?'♪×':'♪'; this.style.opacity=muted?0.5:1;
+    var s=curSlot; curSlot=''; if(muted){ if(cur){ var o=cur; fade(o,0,function(){ o.pause(); }); cur=null; } curSlot=s; } else music(s);
+  };
   // ---- 关卡：选关、通关记录（只存在玩家自己的浏览器里）----
   function go(id){ location.href=location.pathname+'?'+(code?'code='+encodeURIComponent(code)+'&':'')+(id?'case='+encodeURIComponent(id):''); }
   function best(id){ try{ return JSON.parse(localStorage.getItem('twelve_best_'+id)||'null'); }catch(e){ return null; } }
@@ -362,6 +429,7 @@ window.onerror=function(msg, src, line, col){
   // ---- 庭审中途的事件：打断一下，读完再继续 ----
   function handleEvents(r, keep){
     if(!r.events||!r.events.length) return;
+    music('reversal');
     var added=0, h='';
     for(var i=0;i<r.events.length;i++){ var e=r.events[i]; added+=(e.dossier||[]).length;
       h+='<h2></h2><p></p>'; if(e.dossier&&e.dossier.length){ h+='<ul class="evd">'; for(var k=0;k<e.dossier.length;k++) h+='<li></li>'; h+='</ul>'; } }
@@ -385,7 +453,7 @@ window.onerror=function(msg, src, line, col){
         $('box').getElementsByTagName('p')[0].textContent=(r.error||('服务器返回 '+s))+'（服务可能刚重启过）';
         $('again').onclick=function(){ location.reload(); }; return;
       }
-      $('overlay').style.display='none'; started=true;
+      $('overlay').style.display='none'; started=true; music('trial');
       deadline=new Date().getTime()+r.time_left*1000; tick(); timerId=setInterval(tick, 250); setInterval(poll, 50);
       $('in').disabled=false; $('go').disabled=false; $('rest').disabled=false; $('hint').disabled=false;
       log('tip', '开庭了。在下面输入一句辩护的话，停一下，看看谁点头、谁皱眉；满意了再按回车。');
@@ -445,6 +513,10 @@ window.onerror=function(msg, src, line, col){
     var m=Math.floor(C.time_limit/60);
     $('t').textContent=m+':'+('0'+C.time_limit%60).slice(-2);
     var cost=C.hint_cost||10;
+    M=r.music||{}; for(var mk in M){ $('mute').style.display='inline-block'; break; }
+    if(muted){ $('mute').textContent='♪×'; $('mute').style.opacity=0.5; }
+    var hasIntro=C.intro && C.intro.length;
+    var showBrief=function(){
     var phone=window.innerWidth<=640;
     // 手机上一屏就要看得到「开始陈词」：先给三步和按钮，图例和窍门收进「详细说明」（电脑上默认展开）
     $('box').innerHTML='<h2>'+esc(C.title)+'</h2><p id="brief"></p>'+
@@ -452,7 +524,7 @@ window.onerror=function(msg, src, line, col){
       '<li>打一句辩护的话，<b>停一下</b>，看 12 张脸谁点头、谁皱眉。</li>'+
       '<li>满意了按<b>回车</b>，这句话才算说出口。</li>'+
       '<li>'+Math.round(C.time_limit/60)+' 分钟内让至少 <b>'+C.win_votes+'</b> 人倾向无罪（<span style="color:var(--acq)">绿框</span>）。'+(phone?'事实在「案卷」里。':'事实在右边的案卷里。')+'</li></ol>'+
-      '<p><button id="start">开始陈词</button> <button id="more" class="ghost sm">'+(phone?'详细说明 ▾':'收起说明 ▴')+'</button></p>'+
+      '<p><button id="start">开始陈词</button> <button id="more" class="ghost sm">'+(phone?'详细说明 ▾':'收起说明 ▴')+'</button>'+(hasIntro?' <button id="replay" class="ghost sm">重看开场</button>':'')+'</p>'+
       '<div id="detail" style="display:'+(phone?'none':'block')+'">'+
       '<h3>看懂陪审员</h3>'+
       '<div class="legend"><span>'+face(1)+'点头</span><span>'+face(0)+'没感觉</span><span>'+face(-1)+'皱眉</span></div>'+
@@ -467,6 +539,9 @@ window.onerror=function(msg, src, line, col){
     $('more').onclick=function(){ var d=$('detail'), open=d.style.display==='none';
       d.style.display=open?'block':'none'; this.textContent=open?'收起说明 ▴':'详细说明 ▾'; };
     $('brief').textContent=C.brief; $('overlay').style.display='flex'; $('start').onclick=begin;
+    if(hasIntro) $('replay').onclick=function(){ $('overlay').style.display='none'; playIntro(C.intro, showBrief); };
+    };
+    if(hasIntro && !seenIntro(C.id)){ $('overlay').style.display='none'; playIntro(C.intro, showBrief); } else showBrief();
     if(r.backend==='mock') $('ms').textContent='（离线模拟模式）';
     if(r.channel==='beta'){ var bg=document.createElement('span'); bg.className='beta'; bg.textContent='内测版'; $('title').parentNode.insertBefore(bg, $('title').nextSibling); document.title='十二人（内测版）'; }
   }); }
