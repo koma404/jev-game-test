@@ -24,7 +24,7 @@ IDLE_SECONDS = 2 * 3600
 ART = HERE / "art"            # 开场镜头的像素画（python -m twelve.art.case1 生成）
 AUDIO = HERE / "audio"        # 本地配乐：不进仓库（借用的曲子只在自己电脑上放），有就优先用
 MUSIC = HERE / "music"        # 发布用的配乐：自己做的曲子，进仓库，线上版用这个
-MUSIC_SLOTS = ("intro", "trial", "reversal")
+MUSIC_SLOTS = ("intro", "trial", "reversal", "gavel")   # gavel：木槌声（一下），没有就用页面合成的
 AUDIO_TYPES = {".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".m4a": "audio/mp4", ".wav": "audio/wav"}
 _art_cache: dict = {}
 

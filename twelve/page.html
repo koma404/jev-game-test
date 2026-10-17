@@ -433,12 +433,26 @@ window.onerror=function(msg, src, line, col){
     n.buffer=buf; f.type='bandpass'; f.frequency.value=1900; f.Q.value=1.2; ng.gain.value=0.7*vol;
     n.connect(f); f.connect(ng); ng.connect(c.destination); n.start(t);
   }
+  // 有 gavel 录音（twelve/music/gavel.mp3）就用录音，按节奏播几遍；没加载出来就用上面的合成声音
+  var gavelBuf=null;
+  function audioCtx(){ var AC=window.AudioContext||window.webkitAudioContext; if(!AC) return null; actx=actx||new AC(); return actx; }
+  function loadGavel(url){
+    try{
+      var c=audioCtx(); if(!c || !url) return;
+      var x=new XMLHttpRequest(); x.open('GET', url, true); x.responseType='arraybuffer';
+      x.onload=function(){ if(x.status!==200) return; c.decodeAudioData(x.response, function(b){ gavelBuf=b; }, function(){}); };
+      x.send();
+    }catch(e){}
+  }
   function gavel(times){
     if(muted) return;
     try{
-      var AC=window.AudioContext||window.webkitAudioContext; if(!AC) return;
-      actx=actx||new AC(); if(actx.state==='suspended' && actx.resume) actx.resume();
-      for(var i=0;i<times;i++) knock(actx, actx.currentTime+0.05+i*0.34, i===times-1?1:0.75);
+      var c=audioCtx(); if(!c) return; if(c.state==='suspended' && c.resume) c.resume();
+      for(var i=0;i<times;i++){
+        var t=c.currentTime+0.05+i*0.42, vol=i===times-1?1:0.8;
+        if(gavelBuf){ var s=c.createBufferSource(), g=c.createGain(); s.buffer=gavelBuf; g.gain.value=vol*0.9; s.connect(g); g.connect(c.destination); s.start(t); }
+        else knock(c, t, vol);
+      }
     }catch(e){}
   }
   var stampT=0;
@@ -565,6 +579,7 @@ window.onerror=function(msg, src, line, col){
     $('t').textContent=m+':'+('0'+C.time_limit%60).slice(-2);
     var cost=C.hint_cost||10;
     M=r.music||{}; for(var mk in M){ $('mute').style.display='inline-block'; break; }
+    if(M.gavel && !gavelBuf) loadGavel(M.gavel);
     if(muted){ $('mute').textContent='♪×'; $('mute').style.opacity=0.5; }
     var hasIntro=C.intro && C.intro.length;
     var showBrief=function(){
