@@ -14,12 +14,17 @@ from twelve.server import load_case
 SAMPLES = Path(__file__).with_name("hooks.jsonl")
 
 
-def run(client, case):
+def samples_for(case_id: str) -> Path:
+    """case1 用 hooks.jsonl，其他案子用 hooks_<案子>.jsonl。"""
+    return SAMPLES if case_id in ("", "case1") else SAMPLES.with_name(f"hooks_{case_id}.jsonl")
+
+
+def run(client, case, samples=None):
     judge = Judge(case, client)
     th = case["config"]["hit_threshold"]
     ok = total = 0
     misses = []
-    for line in open(SAMPLES, encoding="utf-8"):
+    for line in open(samples or samples_for(case.get("id", "")), encoding="utf-8"):
         if not line.strip():
             continue
         s = json.loads(line)
@@ -44,8 +49,9 @@ def run(client, case):
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--jev", choices=["mock", "real"], default="mock")
+    ap.add_argument("--case", default="case1")
     args = ap.parse_args(argv)
-    case = load_case()
+    case = load_case(args.case)
     if args.jev == "mock":
         client = MockClient(case)
     else:

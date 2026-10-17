@@ -23,14 +23,14 @@ HERE = Path(__file__).parent
 IDLE_SECONDS = 2 * 3600
 
 
-def load_case(name: str = "case1") -> dict:
-    p = Path(name) if name.endswith(".json") else HERE / "cases" / f"{name}.json"
+def load_case(name: str = "case1", folder=None) -> dict:
+    p = Path(name) if name.endswith(".json") else Path(folder or HERE / "cases") / f"{name}.json"
     with open(p, encoding="utf-8") as f:
         return json.load(f)
 
 
-def beta_path(name: str = "case1") -> Path:
-    p = Path(name) if name.endswith(".json") else HERE / "cases" / f"{name}.json"
+def beta_path(name: str = "case1", folder=None) -> Path:
+    p = Path(name) if name.endswith(".json") else Path(folder or HERE / "cases") / f"{name}.json"
     return p.with_name(p.stem + ".beta.json")
 
 
@@ -51,10 +51,19 @@ def merge_case(case: dict, patch: dict) -> dict:
     return out
 
 
+def list_cases(only: str = "", folder=None) -> list:
+    """cases/ 下的所有案子（不含 .beta.json 补丁），按 order 排；only 指定时只要那一个。"""
+    if only and only != "all":
+        return [only]
+    names = [p.stem for p in Path(folder or HERE / "cases").glob("*.json") if not p.stem.endswith(".beta")]
+    return sorted(names, key=lambda n: (load_case(n, folder).get("order", 99), n))
+
+
 def make_client(kind: str, case: dict):
+    """真实 Jev 所有案子共用一个（复用连接）；离线 mock 按案子各建一个（关键词在案子里）。"""
     from game.jev_client import RealJev
     if kind == "mock" or (kind == "auto" and not RealJev.available()):
-        return MockClient(case)
+        return None
     from .link import KeepAliveJev
     c = KeepAliveJev()
     threading.Thread(target=c.warm, daemon=True).start()   # 先把连接建好
@@ -64,10 +73,13 @@ def make_client(kind: str, case: dict):
 class Court:
     """一个浏览器的一场庭审。"""
 
-    def __init__(self, case, judge, logbook=None, player="?"):
-        self.case = case
-        self.judge = judge
-        self.trial = Trial(case)
+    def __init__(self, case, client, logbook=None, player="?"):
+        # 每庭一份自己的案子：庭审中途的事件会改案卷、陪审员在意的点，不能影响别人
+        self.case = json.loads(json.dumps(case))
+        self.client = client
+        self.judge = Judge(self.case, client)
+        self.trial = Trial(self.case)
+        self.fired: set = set()          # 已经触发过的事件
         self.seen = time.time()
         self.cache: dict = {}            # 草稿 -> Judgment；预览过的原句直接说出口时不用再等
         self.say_lock = threading.Lock()
@@ -100,7 +112,30 @@ class Court:
 
     def log(self, event, **fields):
         if self.logbook:
-            self.logbook.write(event, cid=self.cid, player=self.player, channel=self.channel, **fields)
+            self.logbook.write(event, cid=self.cid, player=self.player, channel=self.channel,
+                               case=self.case.get("id"), **fields)
+
+    def check_events(self) -> list:
+        """庭审中途的事件（检方出示新证据之类）：说了 after_says 句以后、或剩余时间 ≤ at_time_left 时触发，每个只触发一次。"""
+        t = self.trial
+        fired = []
+        if t.started_at is None or t.over:
+            return fired
+        for ev in self.case.get("events", []):
+            if ev["id"] in self.fired:
+                continue
+            due = ("after_says" in ev and len(t.history) >= ev["after_says"]) or \
+                  ("at_time_left" in ev and t.time_left() <= ev["at_time_left"])
+            if not due:
+                continue
+            self.fired.add(ev["id"])
+            t.apply_event(ev)
+            self.judge = Judge(self.case, self.client)   # 案卷 / 在意点变了，题目要重组
+            self.cache.clear()
+            fired.append({"id": ev["id"], "title": ev.get("title", "庭审中断"), "text": ev.get("text", ""),
+                          "dossier": ev.get("dossier", []), "time": ev.get("time", 0)})
+            self.log("event", id=ev["id"], votes=t.votes(), leans={k: round(v, 2) for k, v in t.leans.items()})
+        return fired
 
     def end(self, verdict: dict, reason: str):
         """裁决只记一次（主动结束、时间到、说话时时间到，都会走到这里）。"""
@@ -118,7 +153,8 @@ class Court:
 
 def public_case(case: dict) -> dict:
     # 只给玩家看得见的东西：陪审员在意什么、讨厌什么是要靠观察去猜的
-    return {"title": case["title"], "brief": case["brief"], "dossier": case["dossier"],
+    return {"id": case.get("id"), "title": case["title"], "brief": case["brief"], "dossier": case["dossier"],
+            "examples": case.get("examples", []), "stars": case.get("stars", 1),
             "time_limit": case["config"]["time_limit"], "win_votes": case["config"]["win_votes"],
             "max_chars": case["config"]["max_chars"], "debounce": case["config"]["preview_debounce_ms"],
             "swing_band": case["config"].get("swing_band", 0), "hint_cost": case["config"].get("hint_cost", 10),
@@ -187,13 +223,20 @@ class Guard:
 
 class App:
     def __init__(self, args):
-        self.case = load_case(args.case)
-        self.client = make_client(args.jev, self.case)
-        self.judge = Judge(self.case, self.client)
-        # 内测通道：用管理口令开庭的进内测版（发布版 + cases/<case>.beta.json 补丁）；没有补丁就和发布版一样
-        bp = beta_path(args.case)
-        self.beta_case = merge_case(self.case, json.load(open(bp, encoding="utf-8"))) if bp.exists() else self.case
-        self.beta_judge = Judge(self.beta_case, self.client) if bp.exists() else self.judge
+        # 所有案子；每个案子有发布版和内测版（发布版 + cases/<案子>.beta.json 补丁；没有补丁就一样）
+        # beta_only 的案子只在内测版里出现：新关卡先给管理口令的人试玩
+        self.cases: dict = {}
+        folder = getattr(args, "cases_dir", None)
+        for name in list_cases(getattr(args, "case", "") or "all", folder):
+            case = load_case(name, folder)
+            case.setdefault("id", name)
+            bp = beta_path(name, folder)
+            beta = merge_case(case, json.load(open(bp, encoding="utf-8"))) if bp.exists() else case
+            self.cases[case["id"]] = {"release": case, "beta": beta}
+        first = next(iter(self.cases.values()))["release"]
+        self.case = first                                  # 默认案子（管理页显示名字等）
+        self.client = make_client(args.jev, first)
+        self.backend = self.client.name if self.client else "mock"
         self.log_dir = args.log_dir
         self.admin_code = getattr(args, "admin_code", "") or os.environ.get("TWELVE_ADMIN_CODE", "")
         self.logbook = Logbook(args.log_dir, echo=getattr(args, "log_echo", True),
@@ -208,7 +251,35 @@ class App:
         self.guard = Guard(getattr(args, "access_code", "") or os.environ.get("TWELVE_ACCESS_CODE", ""),
                            getattr(args, "daily_budget", 1.0), getattr(args, "max_courts_per_ip", 6), state)
 
-    def court(self, sid, create=False, player="?", beta=False):
+    def client_for(self, case):
+        return self.client or MockClient(case)
+
+    def visible_cases(self, beta: bool) -> list:
+        out = []
+        for cid, v in self.cases.items():
+            c = v["beta" if beta else "release"]
+            if c.get("beta_only") and not beta:
+                continue
+            out.append({"id": cid, "title": c["title"], "stars": c.get("stars", 1), "blurb": c.get("blurb", ""),
+                        "win_votes": c["config"]["win_votes"], "time_limit": c["config"]["time_limit"],
+                        "beta_only": bool(c.get("beta_only"))})
+        return out
+
+    @staticmethod
+    def _events(c) -> dict:
+        fired = c.check_events()
+        if not fired:
+            return {}
+        return {"events": fired, "leans": c.trial.leans, "votes": c.trial.votes(), "dossier": c.case["dossier"]}
+
+    def _pick_case(self, body, beta):
+        visible = [c["id"] for c in self.visible_cases(beta)]
+        want = str(body.get("case") or "")
+        if want in visible:
+            return want
+        return visible[0] if len(visible) == 1 else None
+
+    def court(self, sid, create=False, player="?", beta=False, case_id=None):
         now = time.time()
         with self.lock:
             for k in [k for k, c in self.courts.items() if now - c.seen > IDLE_SECONDS]:
@@ -224,11 +295,10 @@ class App:
             if sid not in self.courts and len(self.courts) >= self.max_sessions:
                 return sid, None
             sid = sid if sid in self.courts else secrets.token_hex(16)
+            case = self.cases[case_id]["beta" if beta else "release"]
+            self.courts[sid] = Court(case, self.client_for(case), self.logbook, player)
             if beta:
-                self.courts[sid] = Court(self.beta_case, self.beta_judge, self.logbook, player)
                 self.courts[sid].channel = "beta"
-            else:
-                self.courts[sid] = Court(self.case, self.judge, self.logbook, player)
             self.courts[sid].on_cost = self.guard.charge
             return sid, self.courts[sid]
 
@@ -243,6 +313,7 @@ class App:
         from urllib.parse import parse_qs, quote
         from .stats import load, report
         events = load([self.logbook.path]) if self.logbook.path and os.path.exists(self.logbook.path) else []
+        everyone = {"jurors": [j for v in self.cases.values() for j in v["beta"]["jurors"]]}
         g = self.guard
         head = (f"进程启动于 {time.strftime('%Y-%m-%d %H:%M', time.localtime(self.started))}；"
                 f"内存中的庭 {len(self.courts)} 个（闲置 2 小时清理）；今日花费 ${g.spent:.4f} / "
@@ -251,7 +322,7 @@ class App:
         return ("<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
                 "<title>十二人 · 运行日志</title><body style='font:14px/1.5 monospace;margin:16px'>"
                 f"<p>{html.escape(head)}</p><p><a href='/admin/log?key={key}'>下载完整日志（jsonl）</a></p>"
-                f"<pre style='white-space:pre-wrap'>{html.escape(report(events, self.case))}</pre>")
+                f"<pre style='white-space:pre-wrap'>{html.escape(report(events, everyone))}</pre>")
 
     # ---- 接口 ----
     def api(self, path, body, sid, ip="?", ua=""):
@@ -269,15 +340,19 @@ class App:
                 r = 401, {"need_code": True, "error": "请输入访问口令。" if not body.get("code") else "口令不对。"}, sid
             elif self.guard.over_budget():
                 refused, r = "budget", (503, {"error": "今天的体验额度已经用完了，明天再来吧。"}, sid)
+            elif not self._pick_case(body, beta):
+                # 没选案子：给选关列表（只有一个能玩的案子时直接进）
+                r = 200, {"cases": self.visible_cases(beta), "channel": "beta" if beta else "release"}, sid
             elif not self.guard.allow_open(ip):
                 refused, r = "per_ip", (429, {"error": "你开庭太频繁了，休息一会儿再来。"}, sid)
             else:
-                sid, c = self.court(sid, create=True, player=player, beta=beta)
+                sid, c = self.court(sid, create=True, player=player, beta=beta, case_id=self._pick_case(body, beta))
                 if c is None:
                     refused, r = "full", (503, {"error": "同时开庭的人太多了，请稍后再试。"}, sid)
                 else:
                     c.log("open", ua=str(ua)[:200], courts=len(self.courts))
-                    r = 200, {"case": public_case(c.case), "backend": self.client.name, "channel": c.channel,
+                    r = 200, {"case": public_case(c.case), "backend": self.backend, "channel": c.channel,
+                              "cases": len(self.visible_cases(beta)),
                               "leans": c.trial.leans, "votes": c.trial.votes()}, sid
             if refused:
                 self.logbook.write("refused", player=player, reason=refused)
@@ -303,7 +378,7 @@ class App:
             h = t.hint()
             c.hints += 1
             c.log("hint", juror=h["juror"], level=t.hinted.get(h["juror"]), time_left=round(t.time_left(), 1))
-            return 200, {**h, "time_left": t.time_left()}, sid
+            return 200, {**h, **self._events(c), "time_left": t.time_left()}, sid
         if path == "/api/verdict":
             if not t.over:
                 t.rested = True
@@ -325,8 +400,9 @@ class App:
             if now - c.last_preview < 0.15:      # 防脚本刷接口；正常打字一次往返远大于这个间隔
                 return 200, {"skip": True}, sid
             c.last_preview = now
+            ev = self._events(c)                 # 按剩余时间触发的事件，在打字时也要能触发
             if len(text) < 4:
-                return 200, {"faces": {j["id"]: 0 for j in c.case["jurors"]}, "ms": 0, "text": text}, sid
+                return 200, {"faces": {j["id"]: 0 for j in c.case["jurors"]}, "ms": 0, "text": text, **ev}, sid
             jd, cached = c.judged(text)
             faces = t.preview(jd)
             srv = (time.time() - t0) * 1000
@@ -337,7 +413,7 @@ class App:
             c.log("preview", text=text, cached=cached, jev_ms=None if cached else round(jd.ms),
                   server_ms=round(srv), browser_prev_ms=prev if isinstance(prev, (int, float)) else None,
                   up=sum(1 for v in faces.values() if v > 0), down=sum(1 for v in faces.values() if v < 0))
-            return 200, {"faces": faces, "ms": round(jd.ms), "text": text,
+            return 200, {"faces": faces, "ms": round(jd.ms), "text": text, **ev,
                          "time_left": t.time_left()}, sid
         if path == "/api/say":
             if not text:
@@ -354,9 +430,10 @@ class App:
                 c.log("say", **h, cached=cached,
                       jev_ms=None if cached else round(jd.ms), server_ms=round((time.time() - t0) * 1000),
                       leans={k: round(v, 2) for k, v in t.leans.items()}, time_left=round(t.time_left(), 1))
+                ev = self._events(c)                 # 说够几句后触发的事件（检方出示新证据之类）
                 auto = None
                 cfg = c.case["config"]
-                if (t.stall >= cfg.get("stall_hint", 0) > 0 and sp.votes < cfg["win_votes"]
+                if (not ev and t.stall >= cfg.get("stall_hint", 0) > 0 and sp.votes < cfg["win_votes"]
                         and not jd.manip > cfg["manip_threshold"]):
                     auto = t.hint(free=True)        # 连着几句没涨票：主动送一次提示，不扣时间
                     t.stall = 0
@@ -364,8 +441,8 @@ class App:
                     c.log("hint", juror=auto["juror"], level=t.hinted.get(auto["juror"]), auto=True,
                           time_left=round(t.time_left(), 1))
                 return 200, {"faces": t.faces(sp.deltas), "reactions": sp.reactions, "notes": sp.notes,
-                             "votes": sp.votes, "need": c.case["config"]["win_votes"], "leans": t.leans, "ms": round(jd.ms),
-                             "auto_hint": auto, "time_left": t.time_left()}, sid
+                             "votes": t.votes(), "need": c.case["config"]["win_votes"], "leans": t.leans, "ms": round(jd.ms),
+                             "auto_hint": auto, **ev, "time_left": t.time_left()}, sid
             finally:
                 c.say_lock.release()
         return 404, {"error": "not found"}, sid
@@ -467,7 +544,8 @@ def main(argv=None) -> int:
     ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", 8000)),
                     help="默认 8000；部署平台（Render 等）通过环境变量 PORT 指定")
     ap.add_argument("--jev", choices=["auto", "mock", "real"], default="auto")
-    ap.add_argument("--case", default="case1")
+    ap.add_argument("--case", default="all", help="只开某一个案子（默认 all：cases/ 下全部，玩家选关）")
+    ap.add_argument("--cases-dir", default=None, help="案子目录（默认 twelve/cases；调试用）")
     ap.add_argument("--max-sessions", type=int, default=30)
     ap.add_argument("--access-code", default="", help="访问口令；也可用环境变量 TWELVE_ACCESS_CODE。挂公网时务必设置")
     ap.add_argument("--daily-budget", type=float, default=1.0, help="每天最多花多少美元调用 Jev，超过当天停用（0 = 不限）")
@@ -483,7 +561,8 @@ def main(argv=None) -> int:
     srv = ThreadingHTTPServer((args.host, args.port), make_handler(app))
     srv.daemon_threads = True
     from game.web import _lan_ips
-    print(f"{app.case['title']} 已开庭（Jev 后端: {app.client.name}）")
+    print(f"十二人 已开庭（Jev 后端: {app.backend}）；案子："
+          + "、".join(v["release"]["title"] + ("（仅内测）" if v["release"].get("beta_only") else "") for v in app.cases.values()))
     for ip in _lan_ips():
         print(f"  局域网访问： http://{ip}:{args.port}")
     print(f"  本机访问：   http://127.0.0.1:{args.port}")

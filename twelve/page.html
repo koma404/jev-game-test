@@ -46,6 +46,14 @@ h1{font-size:22px;margin:0;color:var(--accent)}
 .sw{display:inline-block;width:22px;height:16px;border:2px solid var(--line);border-radius:4px;background:var(--card)}
 .sw.acq{border-color:var(--acq)} .sw.swing{border-color:var(--swing);background:var(--swingbg)}
 #box h3{margin:14px 0 4px;font-size:15px}
+.cases{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+button.case{display:block;text-align:left;background:var(--card);color:var(--fg);border:1px solid var(--line);padding:10px 12px;line-height:1.5}
+button.case:hover{border-color:var(--accent)}
+button.case .st{color:var(--swing);margin-right:8px;letter-spacing:1px} button.case b{font-size:16px}
+button.case .bl{display:block;font-size:14px;color:var(--fg)} button.case .meta{display:block;font-size:12px;color:var(--dim)}
+button.case .won{color:var(--acq)}
+#facts li.new{background:var(--swingbg);border-left:3px solid var(--swing);padding-left:6px}
+.evd li{margin:4px 0;font-weight:bold}
 #main{display:flex;margin-top:12px}
 #main>.panel:first-child{flex:2;margin-right:12px} #main>.panel:last-child{flex:1}
 @media (max-width:760px){#main{display:block} #main>.panel:first-child{margin:0 0 12px}}
@@ -246,6 +254,7 @@ window.onerror=function(msg, src, line, col){
       if(r.ms) lastTotal=new Date().getTime()-t0;
       status(r.ms ? 'Jev '+r.ms+' ms · 总 '+lastTotal+' ms' : (r.text && r.text.length>=4 ? '离线模拟' : '（太短，不预览）'));
       if(r.over) return finish(r.verdict);
+      handleEvents(r);
       if(pending){ pending=false; preview(); }
     });
   }
@@ -274,6 +283,7 @@ window.onerror=function(msg, src, line, col){
       log('tip', head);
       if(r.auto_hint && r.auto_hint.text){ lines.push('【免费提示】'+r.auto_hint.text); log('tip', '【免费提示】'+r.auto_hint.text); if(r.auto_hint.juror) highlight(r.auto_hint.juror); }
       banner(lines);
+      handleEvents(r, lines);
       $('chips').innerHTML=''; lastActive=new Date().getTime(); idleTipped=false;
     });
   }
@@ -284,7 +294,7 @@ window.onerror=function(msg, src, line, col){
     post('/api/hint', {}, function(s, r){
       $('hint').disabled=false;
       if(r.over) return finish(r.verdict);
-      if(r.text){ log('tip', r.text); banner(['【提示】'+r.text]); deadline=new Date().getTime()+r.time_left*1000; tick();
+      if(r.text){ log('tip', r.text); banner(['【提示】'+r.text]); deadline=new Date().getTime()+r.time_left*1000; tick(); handleEvents(r, ['【提示】'+r.text]);
         if(r.juror) highlight(r.juror); }
       lastActive=new Date().getTime(); idleTipped=false;
     });
@@ -312,11 +322,56 @@ window.onerror=function(msg, src, line, col){
       var tag=j.acquit?'<span class="a">无罪</span>':(j.swing?'<span class="s">摇摆</span>':'<span class="g">有罪</span>');
       h+='<div class="vr"><b>'+esc(j.name)+'</b>'+tag+'<span>'+esc(j.line)+
         (j.by?'<br><small class="note">'+(v.best&&j.by===v.best.text?'被上面那句打动':'被这句打动：「'+esc(j.by)+'」')+'</small>':'')+'</span></div>'; }
-    h+='<p style="margin-top:16px"><button id="again">再开一庭</button></p>';
+    h+='<p style="margin-top:16px"><button id="again">再来一次</button>'+(nCases>1?' <button id="pick" class="ghost">选关</button>':'')+'</p>';
+    record(C.id, v);
     $('box').innerHTML=h; $('vtext').textContent=v.text;
     if(v.best){ $('vbest').textContent='「'+v.best.text+'」'; $('vmoved').textContent=v.best.moved.length?'打动了 '+v.best.moved.join('、'):''; }
     $('overlay').style.display='flex';
-    $('again').onclick=function(){ location.reload(); };
+    $('again').onclick=function(){ go(C.id); };
+    if($('pick')) $('pick').onclick=function(){ go(''); };
+  }
+  // ---- 关卡：选关、通关记录（只存在玩家自己的浏览器里）----
+  function go(id){ location.href=location.pathname+'?'+(code?'code='+encodeURIComponent(code)+'&':'')+(id?'case='+encodeURIComponent(id):''); }
+  function best(id){ try{ return JSON.parse(localStorage.getItem('twelve_best_'+id)||'null'); }catch(e){ return null; } }
+  function record(id, v){
+    try{ var b=best(id)||{won:false,votes:0};
+      if(v.acquit) b.won=true; if(v.votes>b.votes) b.votes=v.votes;
+      localStorage.setItem('twelve_best_'+id, JSON.stringify(b)); }catch(e){}
+  }
+  function showSelect(list, channel){
+    var h='<h2>十二人'+(channel==='beta'?' <span class="beta">内测版</span>':'')+'</h2><p class="note">选一个案子。你是辩护律师，要在限定时间里说服陪审员。</p><div class="cases">';
+    for(var i=0;i<list.length;i++){ var c=list[i], b=best(c.id), st='';
+      for(var k=0;k<3;k++) st+=k<c.stars?'★':'☆';
+      h+='<button class="case" data-id="'+esc(c.id)+'"><span class="st">'+st+'</span><b></b>'+(c.beta_only?' <span class="beta">仅内测</span>':'')+
+        '<span class="bl"></span><span class="meta">需 '+c.win_votes+' 票 · '+Math.round(c.time_limit/60)+' 分钟'+
+        (b?(b.won?' · <span class="won">已胜诉</span>':' · 最好 '+b.votes+' 票'):'')+'</span></button>'; }
+    $('box').innerHTML=h+'</div>';
+    var bs=$('box').getElementsByTagName('button');
+    for(var j=0;j<bs.length;j++){ bs[j].getElementsByTagName('b')[0].textContent=list[j].title; bs[j].getElementsByTagName('span')[list[j].beta_only?2:1].textContent=list[j].blurb;
+      bs[j].onclick=function(){ caseId=this.getAttribute('data-id'); open(); }; }
+    $('overlay').style.display='flex';
+  }
+  // ---- 案卷（庭审中途的事件会加新证据，新加的标出来）----
+  function renderDossier(list, nNew){
+    var f=''; for(var k=0;k<list.length;k++) f+='<li'+(k>=list.length-nNew?' class="new"':'')+'></li>'; $('facts').innerHTML=f;
+    var li=$('facts').getElementsByTagName('li'); for(var m=0;m<list.length;m++) li[m].textContent=list[m];
+  }
+  // ---- 庭审中途的事件：打断一下，读完再继续 ----
+  function handleEvents(r, keep){
+    if(!r.events||!r.events.length) return;
+    var added=0, h='';
+    for(var i=0;i<r.events.length;i++){ var e=r.events[i]; added+=(e.dossier||[]).length;
+      h+='<h2></h2><p></p>'; if(e.dossier&&e.dossier.length){ h+='<ul class="evd">'; for(var k=0;k<e.dossier.length;k++) h+='<li></li>'; h+='</ul>'; } }
+    $('box').innerHTML=h+'<p><button id="evok">继续陈词</button></p>';
+    var hs=$('box').getElementsByTagName('h2'), ps=$('box').getElementsByTagName('p'), uls=$('box').getElementsByTagName('ul'), u=0;
+    for(var j=0;j<r.events.length;j++){ var ev=r.events[j]; hs[j].textContent=ev.title; ps[j].textContent=ev.text;
+      if(ev.dossier&&ev.dossier.length){ var lis=uls[u++].getElementsByTagName('li'); for(var q=0;q<ev.dossier.length;q++) lis[q].textContent=ev.dossier[q]; } }
+    $('overlay').style.display='flex'; $('evok').onclick=function(){ $('overlay').style.display='none'; $('in').focus(); };
+    if(r.dossier){ C.dossier=r.dossier; renderDossier(r.dossier, added); }
+    if(r.leans) setLeans(r.leans);
+    if(r.time_left!=null){ deadline=new Date().getTime()+r.time_left*1000; tick(); }
+    var lines=[]; for(var w=0;w<r.events.length;w++) lines.push('【'+r.events[w].title+'】'+r.events[w].text);
+    banner((keep||[]).concat(lines)); for(var z=0;z<lines.length;z++) log('tip', lines[z]);
   }
   function esc(s){ var d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
 
@@ -332,7 +387,7 @@ window.onerror=function(msg, src, line, col){
       $('in').disabled=false; $('go').disabled=false; $('rest').disabled=false; $('hint').disabled=false;
       log('tip', '开庭了。在下面输入一句辩护的话，停一下，看看谁点头、谁皱眉；满意了再按回车。');
       banner(['开庭了。先试试下面两句：一句讲证据，一句讲人情——看看点头的是不是同一批人。', '表情 = 对你正在打的话的预览；绿框 = 倾向无罪，黄框 = 摇摆，灰框 = 有罪。']);
-      var ex=['监控里那个人的脸根本看不清，凭什么认定就是张伟？','他一个人守了八年夜班，女儿还躺在医院，他怎么会拿这一切去赌一批电缆？'], h='';
+      var ex=C.examples||[], h='';
       for(var i=0;i<ex.length;i++) h+='<button class="ghost ex">试一句：'+esc(ex[i])+'</button>';
       $('chips').innerHTML=h; var bs=$('chips').getElementsByTagName('button');
       for(var k=0;k<bs.length;k++) bs[k].onclick=(function(t){ return function(){ $('in').value=t; $('in').focus(); }; })(ex[k]); $('in').placeholder='说一句辩护的话，停一下看脸……'; $('in').focus();
@@ -364,14 +419,18 @@ window.onerror=function(msg, src, line, col){
 
   // 访问口令：可以直接放在链接里分享（?code=xxx），否则弹框输入
   var code=(location.search.match(/[?&]code=([^&]+)/)||[])[1]; code=code?decodeURIComponent(code):'';
+  var caseId=(location.search.match(/[?&]case=([^&]+)/)||[])[1]; caseId=caseId?decodeURIComponent(caseId):'';
+  var nCases=1;
   function askCode(msg){
     $('box').innerHTML='<h2>十二人</h2><p id="cmsg"></p><p><input id="code" style="font:inherit;padding:8px 10px;border:1px solid #ccc;border-radius:6px"> <button id="cgo">进入</button></p>';
     $('cmsg').textContent=msg; $('overlay').style.display='flex';
     var go=function(){ code=$('code').value.replace(/^\s+|\s+$/g,''); open(); };
     $('cgo').onclick=go; $('code').onkeydown=function(e){ if(e.keyCode===13) go(); }; $('code').focus();
   }
-  function open(){ post('/api/new', {code:code}, function(s, r){
+  function open(){ post('/api/new', {code:code, 'case':caseId}, function(s, r){
     if(s===401){ return askCode(r.error||'请输入访问口令。'); }
+    if(s===200 && r.cases && !r.case){ nCases=r.cases.length; return showSelect(r.cases, r.channel); }   // 先选关
+    if(r.cases) nCases=r.cases;
     if(s!==200){ $('box').innerHTML='<h2>无法开庭</h2><p></p>'; $('box').getElementsByTagName('p')[0].textContent=r.error||('错误 '+s); $('overlay').style.display='flex'; return; }
     C=r.case; jurors=C.jurors; debounce=(C.debounce==null?120:C.debounce); swing=C.swing_band||0;
     $('title').textContent=C.title; $('need').textContent=C.win_votes; inp.setAttribute('maxlength', C.max_chars);
@@ -379,7 +438,7 @@ window.onerror=function(msg, src, line, col){
     for(var i=0;i<jurors.length;i++){ var j=jurors[i];
       g+='<div class="j" id="j_'+j.id+'"><div id="f_'+j.id+'"></div><div class="n">'+esc(j.name)+'</div><div class="r"><span class="role">'+esc(j.role)+'</span><span class="pers"><br>'+esc(j.persona)+'</span></div><div class="bar"><span class="mid"></span><i id="b_'+j.id+'"></i></div><div class="bub" id="u_'+j.id+'"></div></div>'; }
     $('grid').innerHTML=g; setFaces({}); setLeans(r.leans);
-    var f=''; for(var k=0;k<C.dossier.length;k++) f+='<li>'+esc(C.dossier[k])+'</li>'; $('facts').innerHTML=f;
+    renderDossier(C.dossier, 0);
     var m=Math.floor(C.time_limit/60);
     $('t').textContent=m+':'+('0'+C.time_limit%60).slice(-2);
     var cost=C.hint_cost||10;

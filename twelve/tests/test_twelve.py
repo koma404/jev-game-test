@@ -404,6 +404,91 @@ class LogTests(unittest.TestCase):
         self.assertIn("800", text)
 
 
+class LevelTests(unittest.TestCase):
+    """关卡框架：选关、只在内测里出现的新关卡、庭审中途的事件。"""
+
+    def setUp(self):
+        import argparse, shutil, tempfile
+        from twelve.server import HERE
+        self.dir = tempfile.mkdtemp()
+        shutil.copy(HERE / "cases" / "case1.json", self.dir)
+        two = load_case()
+        two.update({"id": "case9", "title": "测试关", "order": 9, "stars": 2, "beta_only": True, "blurb": "测试用"})
+        two["events"] = [
+            {"id": "new_evidence", "after_says": 1, "title": "检方出示新证据", "text": "一张新的监控截图。",
+             "dossier": ["检方：新截图里那人左手戴着表。"], "leans": {"han": -1.0}, "leans_all": -0.2, "time": 15,
+             "jurors": [{"id": "han", "concern": "被告是不是左撇子、戴不戴表"}]},
+            {"id": "late", "at_time_left": 100000, "title": "休庭前", "text": "法官看了看表。"}]
+        with open(f"{self.dir}/case9.json", "w", encoding="utf-8") as f:
+            json.dump(two, f, ensure_ascii=False)
+        args = argparse.Namespace(case="all", cases_dir=self.dir, jev="mock", log_dir="", max_sessions=9,
+                                  admin_code="adm", log_echo=False)
+        self.app = App(args)
+        self.app.guard.code = "player"
+        self.srv = HTTPServer(("127.0.0.1", 0), make_handler(self.app))
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        self.base = f"http://127.0.0.1:{self.srv.server_port}"
+        self.cookie = None
+
+    def tearDown(self):
+        import shutil
+        self.srv.shutdown()
+        self.srv.server_close()
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def call(self, path, body=None):
+        h = {"Content-Type": "application/json"}
+        if self.cookie:
+            h["Cookie"] = self.cookie
+        req = urllib.request.Request(self.base + path, data=json.dumps(body or {}).encode(), method="POST", headers=h)
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req) as r:
+            if r.headers.get("Set-Cookie"):
+                self.cookie = r.headers["Set-Cookie"].split(";")[0]
+            return json.loads(r.read())
+
+    def test_players_see_only_released_cases(self):
+        r = self.call("/api/new", {"code": "player"})      # 只有一个能玩的：直接进
+        self.assertEqual(r["case"]["id"], "case1")
+        self.cookie = None
+        r = self.call("/api/new", {"code": "player", "case": "case9"})   # 想绕过去也不行
+        self.assertEqual(r["case"]["id"], "case1")
+
+    def test_admin_picks_a_level(self):
+        r = self.call("/api/new", {"code": "adm"})
+        self.assertEqual([c["id"] for c in r["cases"]], ["case1", "case9"])
+        self.assertNotIn("case", r)
+        r = self.call("/api/new", {"code": "adm", "case": "case9"})
+        self.assertEqual((r["case"]["id"], r["channel"]), ("case9", "beta"))
+
+    def test_event_fires_once_and_changes_the_trial(self):
+        self.call("/api/new", {"code": "adm", "case": "case9"})
+        self.call("/api/begin")
+        court = next(iter(self.app.courts.values()))
+        court.case["events"] = court.case["events"][:1]       # 只测"说够一句"这个事件
+        han0 = court.trial.leans["han"]
+        left0 = court.trial.time_left()
+        r = self.call("/api/say", {"text": "今天天气不错啊各位"})
+        self.assertEqual([e["id"] for e in r["events"]], ["new_evidence"])
+        self.assertIn("检方：新截图里那人左手戴着表。", r["dossier"])
+        self.assertLess(r["leans"]["han"], han0 - 1.0)
+        self.assertGreater(court.trial.time_left(), left0)               # 补了读证据的时间
+        self.assertIn("左撇子", court.judge.questions["hit_han"]["instructions"]["concern"])   # 题目跟着变
+        from twelve.judge import state_for
+        self.assertIn("左手戴着表", state_for(court.judge.case, "x")["case"])          # 新证据进了发给 Jev 的 state
+        r = self.call("/api/say", {"text": "我们来聊聊别的事情吧"})
+        self.assertNotIn("events", r)
+        other = self.app.cases["case9"]["beta"]
+        self.assertEqual(len(other["dossier"]), len(load_case()["dossier"]))   # 不影响别的庭
+
+    def test_time_event_can_fire_while_typing(self):
+        self.call("/api/new", {"code": "adm", "case": "case9"})
+        self.call("/api/begin")
+        court = next(iter(self.app.courts.values()))
+        court.case["events"] = court.case["events"][1:]
+        r = self.call("/api/preview", {"text": "张伟"})
+        self.assertEqual([e["id"] for e in r["events"]], ["late"])
+
+
 class GuardTests(unittest.TestCase):
     def app(self, **kw):
         import argparse

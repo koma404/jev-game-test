@@ -61,6 +61,7 @@ class Trial:
         self.last_votes = self.votes()
         self.moved_most: dict = {}  # 陪审员 -> (最大正向变化, 那句话)，结局页"被这句打动"用
         self.cascaded: set = set()  # 已经触发过连带的硬骨头
+        self.events: list = []      # 已经发生的事件 id
 
     # ---- 时间 ----
     def begin(self):
@@ -184,6 +185,24 @@ class Trial:
                              "hits": {k: round(v, 3) for k, v in jd.hits.items()},
                              "dislikes": {k: round(v, 3) for k, v in jd.dislikes.items()}, "votes": votes})
         return sp
+
+    # ---- 庭审中途的事件（反转）----
+    def apply_event(self, ev: dict):
+        """事件只改数据：加案卷、改倾向、改陪审员在意的点 / 雷区、加论点、补时间。何时触发由 server 判断。"""
+        c = self.cfg
+        self.case["dossier"].extend(ev.get("dossier", []))
+        self.case["arguments"].update(ev.get("arguments", {}))
+        by_id = {j["id"]: j for j in self.jurors}
+        for patch in ev.get("jurors", []):
+            by_id[patch["id"]].update({k: v for k, v in patch.items() if k != "id"})
+        shift = dict(ev.get("leans", {}))
+        for k in self.leans:
+            d = shift.get(k, 0.0) + ev.get("leans_all", 0.0)
+            if d:
+                self.leans[k] = max(c["lean_min"], min(c["lean_max"], self.leans[k] + d))
+        self.penalty -= ev.get("time", 0)     # 给读新证据的时间
+        self.last_votes = self.votes()        # 事件造成的票数变化不算"卡住"
+        self.events.append(ev["id"])
 
     # ---- 提示（代码给，花时间换）----
     def hint(self, free: bool = False) -> dict:
