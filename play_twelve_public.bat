@@ -8,5 +8,5 @@ set TYPESAFE_MODEL=jev-latest
 rem set TYPESAFE_PROXY=direct
 set /p TWELVE_ACCESS_CODE=Access code for players (share it with them): 
 rem --daily-budget is in USD (0.3 USD is about 2 RMB, roughly 5-30 trials).
-python -m twelve.server --jev real --port 8000 --daily-budget 0.3 --max-courts-per-ip 6 %*
+python -m twelve.server --jev real --port 8000 --daily-budget 0.3 --max-courts-per-ip 12 %*
 pause

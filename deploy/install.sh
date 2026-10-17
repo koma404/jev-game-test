@@ -83,7 +83,7 @@ Wants=network-online.target
 User=twelve
 WorkingDirectory=/opt/twelve
 EnvironmentFile=/etc/twelve/env
-ExecStart=/usr/bin/env python3 -m twelve.server --jev real --host 0.0.0.0 --port ${PORT} --log-dir /var/lib/twelve --daily-budget ${DAILY_BUDGET} --max-courts-per-ip 6
+ExecStart=/usr/bin/env python3 -m twelve.server --jev real --host 0.0.0.0 --port ${PORT} --log-dir /var/lib/twelve --daily-budget ${DAILY_BUDGET} --max-courts-per-ip 12
 Restart=always
 RestartSec=3
 # 普通用户也能监听 80 端口

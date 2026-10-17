@@ -270,7 +270,7 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(len(intro), 4)
         self.assertTrue(all(sh["pix"] and sh["pix"]["w"] == 160 and sh["text"] for sh in intro))
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        for bad in ("/audio/README.md", "/audio/..%2Fserver.py", "/audio/intro.mp3"):   # 只认三个槽位，且文件得存在
+        for bad in ("/audio/README.md", "/audio/..%2Fserver.py", "/audio/intro.ogg", "/audio/other.mp3"):   # 只认三个槽位、扩展名要对上
             with self.assertRaises(urllib.error.HTTPError):
                 opener.open(self.base + bad)
 
@@ -397,6 +397,24 @@ class LogTests(unittest.TestCase):
         self.assertEqual(r["channel"], "release")
         chans = [e.get("channel") for e in self.events() if e["event"] == "open"]
         self.assertEqual(chans, ["beta", "release"])
+
+    def test_only_starting_a_trial_counts_toward_the_ip_limit(self):
+        app = self.srv.RequestHandlerClass.app
+        app.guard.per_ip = 2
+        app.max_sessions = 50
+        app.guard.code = "player"
+        ip = "9.9.9.9"
+        for _ in range(5):                                   # 刷新五次页面：不算
+            app.api("/api/new", {"code": "player"}, None, ip)
+        self.assertTrue(app.guard.can_open(ip))
+        for _ in range(2):                                   # 真开始两局：用完
+            code, r, sid = app.api("/api/new", {"code": "player"}, None, ip)
+            app.api("/api/begin", {}, sid, ip)
+        code, r, _ = app.api("/api/new", {"code": "player"}, None, ip)
+        self.assertEqual(code, 429)
+        self.assertIn("分钟后", r["error"])
+        code, r, _ = app.api("/api/new", {"code": "adm"}, None, ip)      # 管理口令不限
+        self.assertEqual(code, 200)
 
     def test_wrong_code_is_logged_as_refused(self):
         self.srv.RequestHandlerClass.app.guard.code = "abc"
@@ -562,7 +580,12 @@ class GuardTests(unittest.TestCase):
 
     def test_per_ip_limit(self):
         app = self.app(max_courts_per_ip=2)
-        codes = [app.api("/api/new", {}, None, "9.9.9.9")[0] for _ in range(3)]
+        codes = []
+        for _ in range(3):                                  # 开始陈词才算一次
+            code, _, sid = app.api("/api/new", {}, None, "9.9.9.9")
+            codes.append(code)
+            if code == 200:
+                app.api("/api/begin", {}, sid, "9.9.9.9")
         self.assertEqual(codes, [200, 200, 429])
         self.assertEqual(app.api("/api/new", {}, None, "8.8.8.8")[0], 200)
 

@@ -180,7 +180,7 @@ Jev 的接入方式（OpenRouter 端点、key、代理）与 v0.1 相同，见 `
 - Jev 的弱项是算术、计数、多跳推理：这些全在代码里。也不要让它跨回合追踪对话。
 - 挂到公网时三道闸（`server.py` 的 `Guard`）：访问口令（`--access-code` / `TWELVE_ACCESS_CODE`，分享链接可带 `?code=`）、
   每日花费上限（`--daily-budget` 美元，按 Jev 返回的 `usage.cost` 累计，存 `logs/budget.json`，重启不清零）、
-  每 IP 每小时开庭数（`--max-courts-per-ip`；经隧道从本机连入时取 `CF-Connecting-IP` / `X-Forwarded-For`，没有这些头时无法区分玩家，跳过按 IP 限流；部署在平台后面用 `TWELVE_TRUST_PROXY=1`）。预览每庭最快 0.15 s 一次。
+  每 IP 每小时开始几局（`--max-courts-per-ip`，默认 12；点了「开始陈词」才算，打开页面 / 看开场 / 刷新不算；管理口令不限——10-17 自己测配乐时反复刷新被 6 次上限拦住；经隧道从本机连入时取 `CF-Connecting-IP` / `X-Forwarded-For`，没有这些头时无法区分玩家，跳过按 IP 限流；部署在平台后面用 `TWELVE_TRUST_PROXY=1`）。预览每庭最快 0.15 s 一次。
   再加一道最硬的：在 OpenRouter 后台给这个 key 设额度上限。Windows 上用 `play_twelve_public.bat` / `play_twelve_cloudflare.bat`，云端用 `render.yaml`。
 - 成本实测：每次判断约 2,600 输入 token、$0.00011；Render 内测实际一局约 $0.0015（预览远少于原先估计的 100–600 次：一次往返近 1 秒，且同一时间只有一个在途预览）。
 

@@ -241,18 +241,36 @@ class Guard:
     def code_ok(self, given) -> bool:
         return not self.code or secrets.compare_digest(str(given or ""), self.code)
 
-    def allow_open(self, ip) -> bool:
-        if ip is None:       # 拿不到真实 IP：不按 IP 限流，免得所有玩家共用一个额度
+    def _recent(self, ip, now):
+        hits = [t for t in self.opens.get(ip, []) if now - t < 3600]
+        self.opens[ip] = hits
+        return hits
+
+    def can_open(self, ip) -> bool:
+        """只查不记：这个 IP 这一小时还能不能再开一庭。拿不到真实 IP 时不限（免得所有玩家共用一个额度）。"""
+        if ip is None or not self.per_ip:
             return True
-        now = time.time()
         with self.lock:
-            hits = [t for t in self.opens.get(ip, []) if now - t < 3600]
-            if self.per_ip and len(hits) >= self.per_ip:
-                self.opens[ip] = hits
-                return False
-            hits.append(now)
-            self.opens[ip] = hits
-            return True
+            return len(self._recent(ip, time.time())) < self.per_ip
+
+    def record_open(self, ip):
+        """真正开始陈词时才记一次（打开页面、看开场、刷新都不算）。"""
+        if ip is None or not self.per_ip:
+            return
+        with self.lock:
+            self._recent(ip, time.time()).append(time.time())
+
+    def wait_minutes(self, ip) -> int:
+        with self.lock:
+            hits = self._recent(ip, time.time())
+            return max(1, int((3600 - (time.time() - min(hits))) // 60) + 1) if hits else 0
+
+    def allow_open(self, ip) -> bool:
+        """查并记一次（旧接口，测试和脚本用）。"""
+        if not self.can_open(ip):
+            return False
+        self.record_open(ip)
+        return True
 
 
 class App:
@@ -283,7 +301,7 @@ class App:
         if state:
             os.makedirs(args.log_dir, exist_ok=True)
         self.guard = Guard(getattr(args, "access_code", "") or os.environ.get("TWELVE_ACCESS_CODE", ""),
-                           getattr(args, "daily_budget", 1.0), getattr(args, "max_courts_per_ip", 6), state)
+                           getattr(args, "daily_budget", 1.0), getattr(args, "max_courts_per_ip", 12), state)
 
     def client_for(self, case):
         return self.client or MockClient(case)
@@ -377,13 +395,14 @@ class App:
             elif not self._pick_case(body, beta):
                 # 没选案子：给选关列表（只有一个能玩的案子时直接进）
                 r = 200, {"cases": self.visible_cases(beta), "channel": "beta" if beta else "release"}, sid
-            elif not self.guard.allow_open(ip):
-                refused, r = "per_ip", (429, {"error": "你开庭太频繁了，休息一会儿再来。"}, sid)
+            elif not beta and not self.guard.can_open(ip):      # 管理口令（自己测试）不限
+                refused, r = "per_ip", (429, {"error": f"这一小时开庭太多次了，约 {self.guard.wait_minutes(ip)} 分钟后再来。"}, sid)
             else:
                 sid, c = self.court(sid, create=True, player=player, beta=beta, case_id=self._pick_case(body, beta))
                 if c is None:
                     refused, r = "full", (503, {"error": "同时开庭的人太多了，请稍后再试。"}, sid)
                 else:
+                    c.ip = ip
                     c.log("open", ua=str(ua)[:200], courts=len(self.courts))
                     r = 200, {"case": public_case(c.case), "backend": self.backend, "channel": c.channel,
                               "music": music_files(),
@@ -405,6 +424,8 @@ class App:
         if path == "/api/begin":
             if t.started_at is None:
                 c.log("begin")
+                if c.channel != "beta":
+                    self.guard.record_open(getattr(c, "ip", None))
             t.begin()
             return 200, {"time_left": t.time_left()}, sid
         if path == "/api/hint":
@@ -622,7 +643,7 @@ def main(argv=None) -> int:
     ap.add_argument("--max-sessions", type=int, default=30)
     ap.add_argument("--access-code", default="", help="访问口令；也可用环境变量 TWELVE_ACCESS_CODE。挂公网时务必设置")
     ap.add_argument("--daily-budget", type=float, default=1.0, help="每天最多花多少美元调用 Jev，超过当天停用（0 = 不限）")
-    ap.add_argument("--max-courts-per-ip", type=int, default=6, help="同一 IP 每小时最多开几庭（0 = 不限）")
+    ap.add_argument("--max-courts-per-ip", type=int, default=12, help="同一 IP 每小时最多开始几局（点了「开始陈词」才算；管理口令不限；0 = 不限）")
     ap.add_argument("--log-dir", default="twelve/logs")
     ap.add_argument("--admin-code", default="", help="管理口令，开启 /admin?key=口令（统计与日志下载）；也可用环境变量 TWELVE_ADMIN_CODE")
     args = ap.parse_args(argv)

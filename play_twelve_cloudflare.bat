@@ -8,7 +8,7 @@ set TYPESAFE_KEY_FILE=%~dp0key.txt
 set TYPESAFE_BASE_URL=https://openrouter.ai/api/v1/systemone
 set TYPESAFE_MODEL=jev-latest
 set /p TWELVE_ACCESS_CODE=Access code for players (share it with them): 
-start "twelve server" cmd /k python -m twelve.server --jev real --port 8000 --daily-budget 0.3 --max-courts-per-ip 6
+start "twelve server" cmd /k python -m twelve.server --jev real --port 8000 --daily-budget 0.3 --max-courts-per-ip 12
 echo Waiting for the game server...
 timeout /t 4 >nul
 curl -s -o nul -m 5 http://127.0.0.1:8000/ || (echo. & echo [!] The game server is NOT answering on http://127.0.0.1:8000 . Check the "twelve server" window for errors. & echo.)
