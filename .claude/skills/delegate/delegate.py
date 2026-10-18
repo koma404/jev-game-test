@@ -30,7 +30,13 @@ import urllib.request
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
-DEFAULT_SYSTEM = "你是一个高效的执行助手。严格按指令完成任务，只输出结果本身，不要寒暄、不要解释、不要夸奖。"
+TIMEOUT_OVERRIDE = [None]
+TIMEOUT = 60   # 单次等待不超过 60 秒；超时按失败重试，不要把等待越拉越长（--timeout 可改）
+DEFAULT_SYSTEM = (
+    "你是一个高效的执行助手。严格按指令完成任务，只输出结果本身，不要寒暄、不要解释、不要夸奖。\n"
+    "只交付指令要求的最小成品：不扩写、不顺手改进、不加指令没要的内容；可逆的小选择（措辞、格式细节）选一个就定，不要列备选。\n"
+    "如果信息不足、无法在不猜测的情况下完成，只输出一行 `NEED: 你要问的一个简短问题`，不要猜着做。"
+)
 
 
 def backend(model):
@@ -56,7 +62,7 @@ def call(prompt, system, model, max_tokens, think=False, retries=3):
     for i in range(retries):
         try:
             req = urllib.request.Request(url, data=body, headers=headers)
-            r = json.load(urllib.request.urlopen(req, timeout=180))
+            r = json.load(urllib.request.urlopen(req, timeout=TIMEOUT_OVERRIDE[0] or TIMEOUT))
             text = r["choices"][0]["message"]["content"]
             if text is None:   # 推理把 max_tokens 用光、正文为空
                 raise RuntimeError("模型没有返回正文（可能推理用光了 max_tokens）")
@@ -85,6 +91,8 @@ def strip_fence(text):
 
 
 def check(text, args):
+    if text.strip().startswith("NEED:"):
+        return "模型需要澄清（没有硬做）：" + text.strip()[5:].strip()[:200]
     if args.json:
         try:
             json.loads(strip_fence(text))
@@ -157,11 +165,13 @@ def main():
     p.add_argument("--model", help="覆盖默认模型")
     p.add_argument("--system", default=DEFAULT_SYSTEM)
     p.add_argument("--max-tokens", type=int, default=4000)
+    p.add_argument("--timeout", type=int, default=TIMEOUT, help="单次请求超时秒数")
     p.add_argument("--workers", type=int, default=8)
     p.add_argument("--think", action="store_true", help="允许模型推理（默认关闭，更便宜更快）")
     p.add_argument("--json", action="store_true", help="要求输出为合法 JSON")
     p.add_argument("--max-chars", type=int, help="输出字符数上限")
     args = p.parse_args()
+    TIMEOUT_OVERRIDE[0] = args.timeout
     sys.exit(run_batch(args) if args.batch else run_single(args))
 
 
