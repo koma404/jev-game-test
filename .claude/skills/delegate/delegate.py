@@ -5,7 +5,7 @@
 
 后端选择：
   - 设置了 DEEPSEEK_API_KEY  -> 直连 api.deepseek.com（模型默认 deepseek-chat）
-  - 否则                     -> OpenRouter（凭据由代理注入，模型默认 deepseek/deepseek-chat）
+  - 否则                     -> OpenRouter（凭据由代理注入，模型默认 deepseek/deepseek-v4.1-flash）
 
 单任务：
   delegate.py --task "把下面内容翻译成英文" --input a.md --out out/a.en.md
@@ -37,17 +37,20 @@ def backend(model):
     key = os.environ.get("DEEPSEEK_API_KEY")
     if key:
         return DEEPSEEK_URL, {"Authorization": f"Bearer {key}"}, model or "deepseek-chat"
-    return OPENROUTER_URL, {}, model or "deepseek/deepseek-chat"
+    return OPENROUTER_URL, {}, model or "deepseek/deepseek-v4.1-flash"
 
 
-def call(prompt, system, model, max_tokens, retries=3):
+def call(prompt, system, model, max_tokens, think=False, retries=3):
     url, extra, model = backend(model)
-    body = json.dumps({
+    payload = {
         "model": model,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
         "temperature": 0,
-    }).encode()
+    }
+    if url == OPENROUTER_URL and not think:
+        payload["reasoning"] = {"enabled": False}   # 推理模型默认先想一大段，推理 token 照样计费；机械活不需要
+    body = json.dumps(payload).encode()
     headers = {"Content-Type": "application/json", **extra}
     last = None
     for i in range(retries):
@@ -55,9 +58,11 @@ def call(prompt, system, model, max_tokens, retries=3):
             req = urllib.request.Request(url, data=body, headers=headers)
             r = json.load(urllib.request.urlopen(req, timeout=180))
             text = r["choices"][0]["message"]["content"]
+            if text is None:   # 推理把 max_tokens 用光、正文为空
+                raise RuntimeError("模型没有返回正文（可能推理用光了 max_tokens）")
             u = r.get("usage", {})
             return text, u.get("prompt_tokens", 0), u.get("completion_tokens", 0), u.get("cost", 0.0)
-        except (urllib.error.URLError, KeyError, TimeoutError, json.JSONDecodeError) as e:
+        except (urllib.error.URLError, KeyError, TimeoutError, json.JSONDecodeError, RuntimeError) as e:
             last = e
             time.sleep(2 ** (i + 1))
     raise RuntimeError(f"调用失败: {last}")
@@ -94,7 +99,7 @@ def run_single(args):
     task = open(args.task_file, encoding="utf-8").read() if args.task_file else args.task
     if not task:
         sys.exit("需要 --task 或 --task-file")
-    text, tin, tout, cost = call(build_prompt(task, args.input), args.system, args.model, args.max_tokens)
+    text, tin, tout, cost = call(build_prompt(task, args.input), args.system, args.model, args.max_tokens, args.think)
     if args.json:
         text = strip_fence(text)
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
@@ -115,7 +120,7 @@ def run_batch(args):
     def one(job):
         try:
             prompt = build_prompt((job.get("prompt") or base), job.get("input"))
-            text, tin, tout, cost = call(prompt, args.system, args.model, args.max_tokens)
+            text, tin, tout, cost = call(prompt, args.system, args.model, args.max_tokens, args.think)
             if args.json:
                 text = strip_fence(text)
             problem = check(text, args)
@@ -153,6 +158,7 @@ def main():
     p.add_argument("--system", default=DEFAULT_SYSTEM)
     p.add_argument("--max-tokens", type=int, default=4000)
     p.add_argument("--workers", type=int, default=8)
+    p.add_argument("--think", action="store_true", help="允许模型推理（默认关闭，更便宜更快）")
     p.add_argument("--json", action="store_true", help="要求输出为合法 JSON")
     p.add_argument("--max-chars", type=int, help="输出字符数上限")
     args = p.parse_args()

@@ -31,7 +31,7 @@ python3 $DELEGATE --batch jobs.jsonl --out out/results.jsonl --workers 8
 ```
 结果每行 `{"id", "ok", "output"|"error"}`。
 
-常用参数：`--json`（要求并清理为合法 JSON）、`--max-chars N`（输出过长视为失败）、`--model`、`--max-tokens`、`--task-file`。
+常用参数：`--think`（允许推理，默认关）、`--json`（要求并清理为合法 JSON）、`--max-chars N`（输出过长视为失败）、`--model`、`--max-tokens`、`--task-file`。
 
 ## 读结果的纪律
 
@@ -42,7 +42,7 @@ python3 $DELEGATE --batch jobs.jsonl --out out/results.jsonl --workers 8
 ## 后端
 
 - 设了 `DEEPSEEK_API_KEY`：直连 api.deepseek.com（默认模型 `deepseek-chat`）。
-- 否则走 OpenRouter（云端会话里凭据由代理注入，默认模型 `deepseek/deepseek-chat`）。
+- 否则走 OpenRouter（云端会话里凭据由代理注入，默认模型 `deepseek/deepseek-v4.1-flash`，带推理的模型，脚本默认给 OpenRouter 请求加 `reasoning: {enabled: false}` 关掉推理——否则推理 token 照样计费、还可能把 `max_tokens` 用光导致正文为空；需要推理时加 `--think`）。
 - 直连需要环境网络策略放行 `api.deepseek.com`；不通就用 OpenRouter。
 
 ## 成本参考
