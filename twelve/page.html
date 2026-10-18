@@ -659,7 +659,7 @@ window.onerror=function(msg, src, line, col){
     var showRead=function(done){
       var v=C.dossier_view, ok=v&&v.length===C.dossier.length, h='<h2>阅读案卷</h2><p class="note" style="margin:0" id="readbrief"></p>'+
         '<p class="note" style="margin:4px 0 0">时钟还没开始走，慢慢读。点一条可以展开原文。</p><ol id="readl"></ol>';
-      $('box').innerHTML=h+'<p style="margin:0"><button id="readok">读完了，看说明</button> <button id="readall" class="ghost sm">全部展开</button></p>';
+      $('box').innerHTML=h+'<p style="margin:0"><button id="readok">读完了</button> <button id="readall" class="ghost sm">全部展开</button></p>';
       $('readbrief').textContent=C.brief; $('overlay').style.display='flex';
       var ul=$('readl'), allOpen=false;
       for(var i=0;i<C.dossier.length;i++){
@@ -710,8 +710,8 @@ window.onerror=function(msg, src, line, col){
     $('reread').onclick=function(){ showRead(showBrief); };
     if(hasIntro) $('replay').onclick=function(){ $('overlay').style.display='none'; playIntro(C.intro, showBrief); };
     };
-    var afterRoll=function(){ if(seenRead()) showBrief(); else showRead(showBrief); };
-    var afterIntro=function(){ if(seenRoll()) afterRoll(); else showRoll(afterRoll); };
+    var afterRead=function(){ if(seenRoll()) showBrief(); else showRoll(showBrief); };      // 先读案卷，再认陪审团
+    var afterIntro=function(){ if(seenRead()) afterRead(); else showRead(afterRead); };
     if(hasIntro && !seenIntro(C.id)){ $('overlay').style.display='none'; playIntro(C.intro, afterIntro); } else afterIntro();
     if(r.backend==='mock') $('ms').textContent='（离线模拟模式）';
     if(r.channel==='beta'){ var bg=document.createElement('span'); bg.className='beta'; bg.textContent='内测版'; $('title').parentNode.insertBefore(bg, $('title').nextSibling); document.title='十二人（内测版）'; }
