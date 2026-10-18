@@ -84,6 +84,21 @@ button.case .won{color:var(--acq)}
 #readl li:last-child{border-bottom:0}
 #readl .fu{display:none;margin:4px 0 0 0;padding:4px 8px;border-left:3px solid var(--line);font-size:13px;color:var(--dim)}
 #readl li.open .fu{display:block} #readl .ar{float:right;color:var(--dim);font-size:12px}
+/* 选关：独立的整页界面（不是弹窗）；卡片用开场第一个镜头做缩略图 */
+#select{position:fixed;left:0;top:0;right:0;bottom:0;z-index:55;overflow-y:auto;-webkit-overflow-scrolling:touch;background:var(--bg);display:none}
+#select .in{max-width:960px;margin:0 auto;padding:24px 16px 40px}
+#select .sh{display:flex;align-items:center;gap:12px} #select .sh h1{display:block !important;font-size:30px;letter-spacing:4px} #select .sh .sp{flex:1}
+#select .sub{color:var(--dim);margin:6px 0 18px}
+#cases2{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:16px}
+button.cd{display:block;text-align:left;padding:0;overflow:hidden;background:var(--card);color:var(--fg);border:2px solid var(--line);border-radius:12px;cursor:pointer;line-height:1.5;transition:border-color .2s,transform .2s,box-shadow .2s}
+button.cd:hover,button.cd:focus{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.18);outline:none}
+button.cd canvas{display:block;width:100%;height:auto;aspect-ratio:16/9;image-rendering:pixelated;image-rendering:crisp-edges;background:#000;border-bottom:2px solid var(--line)}
+button.cd .no{display:block;width:100%;aspect-ratio:16/9;background:#000;border-bottom:2px solid var(--line)}
+button.cd .bd{display:block;padding:10px 14px 12px} button.cd .t{display:block;font-size:18px;font-weight:bold}
+button.cd .st{color:var(--swing);letter-spacing:2px;margin-right:6px} button.cd .bl{display:block;color:var(--fg);font-size:14px;margin:2px 0 6px}
+button.cd .ch{display:inline-block;font-size:12px;color:var(--dim);border:1px solid var(--line);border-radius:10px;padding:0 8px;margin:2px 4px 0 0}
+button.cd .ch.won{color:var(--acq);border-color:var(--acq)} button.cd .ch.tip{color:var(--accent);border-color:var(--accent)}
+#select .foot{color:var(--dim);font-size:13px;margin-top:20px}
 /* 开场镜头：仿像素游戏开场，黑底白框，打字机字幕 */
 #intro{position:fixed;left:0;top:0;right:0;bottom:0;z-index:60;background:#000;color:#fff;display:none;flex-direction:column;align-items:center;justify-content:center;padding:16px;cursor:pointer;-webkit-user-select:none;user-select:none}
 #intro canvas{width:640px;max-width:100%;height:auto;border:3px solid #fff;image-rendering:pixelated;image-rendering:crisp-edges;display:block;opacity:0;transition:opacity .25s}
@@ -197,6 +212,12 @@ button:disabled{opacity:.5;cursor:default}
     </div>
   </div>
 </div>
+<div id="select"><div class="in">
+  <div class="sh"><h1>十二人</h1><span id="selbeta" class="beta" style="display:none">内测版</span><span class="sp"></span><button id="smute" class="ghost sm" title="配乐开关" style="display:none">♪</button></div>
+  <p class="sub">你是辩护律师。选一个案子，在限定时间里说服十二位陪审员。</p>
+  <div id="cases2"></div>
+  <p class="foot" id="selfoot"></p>
+</div></div>
 <div id="toast"></div>
 <div id="stamp"><b id="stampword"></b><span id="stampsub"></span></div>
 <div id="intro"><button id="skipintro">跳过 ›</button><canvas id="introcv" width="160" height="90"></canvas><div class="cap" id="introcap"></div><div class="tip">点击 / 空格 / 回车 继续</div></div>
@@ -506,18 +527,34 @@ window.onerror=function(msg, src, line, col){
       if(v.acquit) b.won=true; if(v.votes>b.votes) b.votes=v.votes;
       localStorage.setItem('twelve_best_'+id, JSON.stringify(b)); }catch(e){}
   }
-  function showSelect(list, channel){
-    var h='<h2>十二人'+(channel==='beta'?' <span class="beta">内测版</span>':'')+'</h2><p class="note">选一个案子。你是辩护律师，要在限定时间里说服陪审员。</p><div class="cases">';
-    for(var i=0;i<list.length;i++){ var c=list[i], b=best(c.id), st='';
-      for(var k=0;k<3;k++) st+=k<c.stars?'★':'☆';
-      h+='<button class="case" data-id="'+esc(c.id)+'"><span class="st">'+st+'</span><b></b>'+(c.beta_only?' <span class="beta">仅内测</span>':'')+
-        '<span class="bl"></span><span class="meta">需 '+c.win_votes+' 票 · '+Math.round(c.time_limit/60)+' 分钟'+
-        (b?(b.won?' · <span class="won">已胜诉</span>':' · 最好 '+b.votes+' 票'):'')+(c.modes&&c.modes.length?' · 打字慢？可选「'+esc(c.modes[0].label)+'」'+Math.round(c.modes[0].time_limit/60)+' 分钟 · '+c.modes[0].max_says+' 句':'')+'</span></button>'; }
-    $('box').innerHTML=h+'</div>';
-    var bs=$('box').getElementsByTagName('button');
-    for(var j=0;j<bs.length;j++){ bs[j].getElementsByTagName('b')[0].textContent=list[j].title; bs[j].getElementsByTagName('span')[list[j].beta_only?2:1].textContent=list[j].blurb;
-      bs[j].onclick=function(){ caseId=this.getAttribute('data-id'); open(); }; }
-    $('overlay').style.display='flex';
+  function showSelect(list, channel, music_){
+    M=music_||{}; var hasM=false; for(var mk in M){ hasM=true; break; }
+    $('overlay').style.display='none'; $('select').style.display='block';
+    $('selbeta').style.display=channel==='beta'?'inline-block':'none';
+    $('smute').style.display=hasM?'inline-block':'none';
+    $('smute').textContent=muted?'♪×':'♪'; $('smute').style.opacity=muted?0.5:1;
+    $('smute').onclick=function(){ $('mute').onclick(); $('smute').textContent=muted?'♪×':'♪'; $('smute').style.opacity=muted?0.5:1; };
+    var box=$('cases2'); box.innerHTML=''; var won=0;
+    for(var i=0;i<list.length;i++){ (function(c){
+      var b=best(c.id), st=''; for(var k=0;k<3;k++) st+=k<c.stars?'★':'☆'; if(b&&b.won) won++;
+      var btn=document.createElement('button'); btn.className='cd'; btn.setAttribute('data-id', c.id);
+      var pic;
+      if(c.thumb){ pic=document.createElement('canvas'); pic.width=160; pic.height=90; drawPix(pic, c.thumb); } else { pic=document.createElement('span'); pic.className='no'; }
+      var bd=document.createElement('span'); bd.className='bd';
+      var t=document.createElement('span'); t.className='t'; var sp=document.createElement('span'); sp.className='st'; sp.textContent=st; t.appendChild(sp); t.appendChild(document.createTextNode(c.title.replace(/^十二人[：:]\s*/,'')));
+      if(c.beta_only){ var bt=document.createElement('span'); bt.className='beta'; bt.style.marginLeft='8px'; bt.textContent='仅内测'; t.appendChild(bt); }
+      var bl=document.createElement('span'); bl.className='bl'; bl.textContent=c.blurb;
+      bd.appendChild(t); bd.appendChild(bl);
+      function chip(txt, cls){ var e=document.createElement('span'); e.className='ch'+(cls?' '+cls:''); e.textContent=txt; bd.appendChild(e); }
+      chip('需 '+c.win_votes+' 票'); chip(Math.round(c.time_limit/60)+' 分钟');
+      if(b) chip(b.won?'已胜诉':'最好 '+b.votes+' 票', b.won?'won':'');
+      if(c.modes&&c.modes.length) chip('可选「'+c.modes[0].label+'」'+Math.round(c.modes[0].time_limit/60)+' 分钟 · '+c.modes[0].max_says+' 句','tip');
+      btn.appendChild(pic); btn.appendChild(bd);
+      btn.onclick=function(){ caseId=c.id; $('select').style.display='none'; open(); };
+      box.appendChild(btn);
+    })(list[i]); }
+    $('selfoot').textContent='已胜诉 '+won+' / '+list.length+' 个案子 · 战绩只存在这台设备的浏览器里';
+    if(hasM) music('intro');
   }
   // ---- 案卷（庭审中途的事件会加新证据，新加的标出来）----
   var showFullDoc=false, lastNew=0;
@@ -624,7 +661,7 @@ window.onerror=function(msg, src, line, col){
   }
   function open(){ post('/api/new', {code:code, 'case':caseId}, function(s, r){
     if(s===401){ return askCode(r.error||'请输入访问口令。'); }
-    if(s===200 && r.cases && !r.case){ nCases=r.cases.length; return showSelect(r.cases, r.channel); }   // 先选关
+    if(s===200 && r.cases && !r.case){ nCases=r.cases.length; return showSelect(r.cases, r.channel, r.music); }   // 先选关
     if(r.cases) nCases=r.cases;
     if(s!==200){ $('box').innerHTML='<h2>无法开庭</h2><p></p>'; $('box').getElementsByTagName('p')[0].textContent=r.error||('错误 '+s); $('overlay').style.display='flex'; return; }
     C=r.case; jurors=C.jurors; debounce=(C.debounce==null?120:C.debounce); swing=C.swing_band||0;

@@ -319,6 +319,7 @@ class App:
             out.append({"id": cid, "title": c["title"], "stars": c.get("stars", 1), "blurb": c.get("blurb", ""),
                         "win_votes": c["config"]["win_votes"], "time_limit": c["config"]["time_limit"],
                         "beta_only": bool(c.get("beta_only")),
+                        "thumb": load_art(c["intro"][0]["art"]) if c.get("intro") and c["intro"][0].get("art") else None,   # 选关卡片的缩略图：用开场第一个镜头
                         "modes": [{"label": m.get("label", k), "time_limit": m.get("time_limit", c["config"]["time_limit"]),
                                    "max_says": m.get("max_says", 0)} for k, m in c.get("modes", {}).items()]})
         return out
@@ -411,7 +412,8 @@ class App:
                 refused, r = "budget", (503, {"error": "今天的体验额度已经用完了，明天再来吧。"}, sid)
             elif not self._pick_case(body, beta):
                 # 没选案子：给选关列表（只有一个能玩的案子时直接进）
-                r = 200, {"cases": self.visible_cases(beta), "channel": "beta" if beta else "release"}, sid
+                r = 200, {"cases": self.visible_cases(beta), "channel": "beta" if beta else "release",
+                          "music": music_files()}, sid
             elif not beta and not self.guard.can_open(ip):      # 管理口令（自己测试）不限
                 refused, r = "per_ip", (429, {"error": f"这一小时开庭太多次了，约 {self.guard.wait_minutes(ip)} 分钟后再来。"}, sid)
             else:
