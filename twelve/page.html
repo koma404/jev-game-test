@@ -644,6 +644,7 @@ window.onerror=function(msg, src, line, col){
     var rollKey='twelve_roll_'+C.id;
     function seenRoll(){ try{ return localStorage.getItem(rollKey)==='1'; }catch(e){ return false; } }
     var showRoll=function(done){
+      music('intro');
       var h='<h2 class="rollh">陪审团入场</h2><p class="note rollnote" style="margin:0">十二个人，各有各的脾气。先认认人，时钟还没开始走。</p><div id="roll">';
       for(var i=0;i<jurors.length;i++){ var j=jurors[i];
         h+='<div class="rc">'+face(0)+'<div class="tx"><b>'+esc(j.name)+'</b><span class="ro">'+esc(j.role)+'</span><span class="ps">'+esc(j.persona)+'</span></div></div>'; }
@@ -657,6 +658,7 @@ window.onerror=function(msg, src, line, col){
     var readKey='twelve_read_'+C.id;
     function seenRead(){ try{ return localStorage.getItem(readKey)==='1'; }catch(e){ return false; } }
     var showRead=function(done){
+      music('intro');
       var v=C.dossier_view, ok=v&&v.length===C.dossier.length, h='<h2>阅读案卷</h2><p class="note" style="margin:0" id="readbrief"></p>'+
         '<p class="note" style="margin:4px 0 0">时钟还没开始走，慢慢读。点一条可以展开原文。</p><ol id="readl"></ol>';
       $('box').innerHTML=h+'<p style="margin:0"><button id="readok">读完了</button> <button id="readall" class="ghost sm">全部展开</button></p>';
@@ -674,6 +676,7 @@ window.onerror=function(msg, src, line, col){
       $('readok').onclick=function(){ try{ localStorage.setItem(readKey,'1'); }catch(e){} done(); };
     };
     var showBrief=function(){
+    music('intro');                      // 开庭前的所有页面（开场、读案卷、陪审团、说明）连着放同一首
     var phone=window.innerWidth<=640;
     // 手机上一屏就要看得到「开始陈词」：先给三步和按钮，图例和窍门收进「详细说明」（电脑上默认展开）
     $('box').innerHTML='<h2>'+esc(C.title)+'</h2><p id="brief"></p>'+
