@@ -54,6 +54,18 @@ button.case .bl{display:block;font-size:14px;color:var(--fg)} button.case .meta{
 button.case .won{color:var(--acq)}
 #facts li.new{background:var(--swingbg);border-left:3px solid var(--swing);padding-left:6px}
 .evd li{margin:4px 0;font-weight:bold}
+/* 陪审团入场：开庭前看一遍 12 个人（时钟还没开始走） */
+#roll{display:flex;flex-wrap:wrap;margin:6px -4px 8px}
+#roll .rc{width:calc(33.333% - 8px);margin:4px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px 4px;text-align:center;opacity:0;transform:translateY(8px);transition:opacity .3s,transform .3s}
+#roll .rc.on{opacity:1;transform:none}
+#roll .rc svg{width:40px;height:40px;display:block;margin:0 auto}
+#roll .rc .tx{min-width:0}
+#roll .rc b{display:block;font-size:14px} #roll .rc .ro{display:block;font-size:12px;color:var(--accent)} #roll .rc .ps{display:block;font-size:12px;color:var(--dim);line-height:1.3;margin-top:2px}
+@media (min-width:641px){#roll .rc{width:calc(25% - 8px)}}
+@media (max-width:640px){#roll .rc{width:calc(50% - 8px);display:flex;align-items:center;text-align:left;padding:4px 6px;box-sizing:border-box}
+  #roll .rc svg{width:34px;height:34px;margin:0 6px 0 0;flex:none} #roll .rc b{display:inline;font-size:13px} #roll .rc .ro{display:inline;margin-left:4px;font-size:11px}
+  #roll .rc .ps{font-size:11px;line-height:1.25;margin-top:1px}
+  #overlay h2.rollh{font-size:19px;margin:0} #overlay .rollnote{display:none} #roll{margin:4px -4px 6px}}
 /* 开场镜头：仿像素游戏开场，黑底白框，打字机字幕 */
 #intro{position:fixed;left:0;top:0;right:0;bottom:0;z-index:60;background:#000;color:#fff;display:none;flex-direction:column;align-items:center;justify-content:center;padding:16px;cursor:pointer;-webkit-user-select:none;user-select:none}
 #intro canvas{width:640px;max-width:100%;height:auto;border:3px solid #fff;image-rendering:pixelated;image-rendering:crisp-edges;display:block;opacity:0;transition:opacity .25s}
@@ -582,6 +594,19 @@ window.onerror=function(msg, src, line, col){
     if(M.gavel && !gavelBuf) loadGavel(M.gavel);
     if(muted){ $('mute').textContent='♪×'; $('mute').style.opacity=0.5; }
     var hasIntro=C.intro && C.intro.length;
+    var rollKey='twelve_roll_'+C.id;
+    function seenRoll(){ try{ return localStorage.getItem(rollKey)==='1'; }catch(e){ return false; } }
+    var showRoll=function(done){
+      var h='<h2 class="rollh">陪审团入场</h2><p class="note rollnote" style="margin:0">十二个人，各有各的脾气。先认认人，时钟还没开始走。</p><div id="roll">';
+      for(var i=0;i<jurors.length;i++){ var j=jurors[i];
+        h+='<div class="rc">'+face(0)+'<div class="tx"><b>'+esc(j.name)+'</b><span class="ro">'+esc(j.role)+'</span><span class="ps">'+esc(j.persona)+'</span></div></div>'; }
+      $('box').innerHTML=h+'</div><p style="margin:0"><button id="seat">入座，看说明</button></p>';
+      $('overlay').style.display='flex';
+      var cards=$('roll').getElementsByTagName('div'), k=0, cs=[];
+      for(var c=0;c<cards.length;c++) if(cards[c].className==='rc') cs.push(cards[c]);
+      var t=setInterval(function(){ if(k>=cs.length){ clearInterval(t); return; } cs[k++].className='rc on'; }, 140);
+      $('seat').onclick=function(){ clearInterval(t); try{ localStorage.setItem(rollKey,'1'); }catch(e){} done(); };
+    };
     var showBrief=function(){
     var phone=window.innerWidth<=640;
     // 手机上一屏就要看得到「开始陈词」：先给三步和按钮，图例和窍门收进「详细说明」（电脑上默认展开）
@@ -590,7 +615,7 @@ window.onerror=function(msg, src, line, col){
       '<li>打一句辩护的话，<b>停一下</b>，看 12 张脸谁点头、谁皱眉。</li>'+
       '<li>满意了按<b>回车</b>，这句话才算说出口。</li>'+
       '<li>'+Math.round(C.time_limit/60)+' 分钟内让至少 <b>'+C.win_votes+'</b> 人倾向无罪（<span style="color:var(--acq)">绿框</span>）。'+(phone?'事实在「案卷」里。':'事实在右边的案卷里。')+'</li></ol>'+
-      '<p><button id="start">开始陈词</button>'+(C.modes&&C.modes.easy?' <button id="easy" class="ghost">'+esc(C.modes.easy.label)+'（'+Math.round(C.modes.easy.time_limit/60)+' 分钟 · '+C.modes.easy.max_says+' 句）</button>':'')+' <button id="more" class="ghost sm">'+(phone?'详细说明 ▾':'收起说明 ▴')+'</button>'+(hasIntro?' <button id="replay" class="ghost sm">重看开场</button>':'')+'</p>'+
+      '<p><button id="start">开始陈词</button>'+(C.modes&&C.modes.easy?' <button id="easy" class="ghost">'+esc(C.modes.easy.label)+'（'+Math.round(C.modes.easy.time_limit/60)+' 分钟 · '+C.modes.easy.max_says+' 句）</button>':'')+' <button id="more" class="ghost sm">'+(phone?'详细说明 ▾':'收起说明 ▴')+'</button>'+(hasIntro?' <button id="replay" class="ghost sm">重看开场</button>':'')+' <button id="roster" class="ghost sm">看陪审团</button></p>'+
       '<div id="detail" style="display:'+(phone?'none':'block')+'">'+
       '<h3>看懂陪审员</h3>'+
       '<div class="legend"><span>'+face(1)+'点头</span><span>'+face(0)+'没感觉</span><span>'+face(-1)+'皱眉</span></div>'+
@@ -606,9 +631,11 @@ window.onerror=function(msg, src, line, col){
       d.style.display=open?'block':'none'; this.textContent=open?'收起说明 ▴':'详细说明 ▾'; };
     $('brief').textContent=C.brief; $('overlay').style.display='flex'; $('start').onclick=function(){ begin(''); };
     if($('easy')) $('easy').onclick=function(){ begin('easy'); };
+    $('roster').onclick=function(){ showRoll(showBrief); };
     if(hasIntro) $('replay').onclick=function(){ $('overlay').style.display='none'; playIntro(C.intro, showBrief); };
     };
-    if(hasIntro && !seenIntro(C.id)){ $('overlay').style.display='none'; playIntro(C.intro, showBrief); } else showBrief();
+    var afterIntro=function(){ if(seenRoll()) showBrief(); else showRoll(showBrief); };
+    if(hasIntro && !seenIntro(C.id)){ $('overlay').style.display='none'; playIntro(C.intro, afterIntro); } else afterIntro();
     if(r.backend==='mock') $('ms').textContent='（离线模拟模式）';
     if(r.channel==='beta'){ var bg=document.createElement('span'); bg.className='beta'; bg.textContent='内测版'; $('title').parentNode.insertBefore(bg, $('title').nextSibling); document.title='十二人（内测版）'; }
   }); }
