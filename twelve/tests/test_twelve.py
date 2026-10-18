@@ -175,7 +175,8 @@ class TrialTests(unittest.TestCase):
     def test_case2_reversal_has_a_fixed_schedule_and_a_hint_on_how_to_answer(self):
         case = load_case("case2")
         ev = case["events"][0]
-        self.assertEqual((ev["after_says"], ev["at_time_left"]), (3, 120))             # 第 3 句后，或剩 2 分钟时，先到者
+        self.assertEqual((ev["after_says"], ev["at_time_left"]), (2, 150))             # 第 2 句后，或剩 2:30 时，先到者
+        self.assertTrue(ev.get("require_reply"))                                      # 反转之后至少要回应一句才能结束
         self.assertTrue(ev.get("advice") and ev.get("short"))
 
     def test_copy_ratio_catches_verbatim_dossier_with_a_vacuous_tail(self):
@@ -660,6 +661,24 @@ class LevelTests(unittest.TestCase):
         self.assertNotIn("verdict", r)
         self.assertFalse(court.trial.over)
         r = self.call("/api/verdict")                                  # 面对过反转之后可以结束
+        self.assertIn("verdict", r)
+
+    def test_a_reversal_that_requires_a_reply_blocks_ending_until_you_say_one_line(self):
+        self.call("/api/new", {"code": "adm", "case": "case9"})
+        self.call("/api/begin")
+        court = next(iter(self.app.courts.values()))
+        court.case["events"] = [dict(court.case["events"][0], require_reply=True, after_says=2)]
+        self.call("/api/say", {"text": "监控里看不清脸，凭什么认定就是他"})
+        r = self.call("/api/say", {"text": "钥匙有三把，主管和保洁也各有一把"})        # 第 2 句：反转出现
+        self.assertEqual([e["id"] for e in r["events"]], ["new_evidence"])
+        self.assertTrue(r["events"][0]["require_reply"])
+        r = self.call("/api/verdict")                                              # 还没回应就想结束：不行
+        self.assertTrue(r["continue"])
+        self.assertIn("回应", r["need_reply"])
+        self.assertNotIn("verdict", r)
+        self.assertFalse(court.trial.over)
+        self.call("/api/say", {"text": "新截图只拍到一个人的手，不能证明他就是被告"})   # 回应一句
+        r = self.call("/api/verdict")
         self.assertIn("verdict", r)
 
     def test_time_event_can_fire_while_typing(self):

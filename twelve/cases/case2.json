@@ -51,8 +51,8 @@
     "copy_from": 0.5,
     "copy_full": 0.9,
     "quote_max": 2,
-    "quote_own_min": 4,
-    "quote_own_full": 16,
+    "quote_own_min": 6,
+    "quote_own_full": 10,
     "recite_base_cut": 0.9,
     "swing_band": 0.5,
     "stall_hint": 2,
@@ -76,8 +76,9 @@
     "none": "以上都不是，或没有实质论点"
   },
   "events": [
-    {"id": "early_tap", "after_says": 3,
-      "at_time_left": 120, "title": "检方出示新证据",
+    {"id": "early_tap", "after_says": 2,
+      "at_time_left": 150,
+      "require_reply": true, "title": "检方出示新证据",
      "text": "检察官站了起来：“辩方说他 9:41 在 1.2 公里外点了送达。可平台规则允许骑手在送达点两公里内就点「已送达」，提前点的骑手比比皆是。”他又举起一张截图：“这是路口另一家店的监控。”",
      "dossier": ["检方新证据：平台规则允许骑手在送达点 2 公里内点「已送达」，提前点很常见。",
                  "检方新证据：另一家店的监控截图（9:39）拍到一个穿黄色骑手服的人骑车经过路口，车牌只看得清「3」和「7」两个数字。陈小军的车牌是 D3K71。"],

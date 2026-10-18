@@ -20,6 +20,7 @@ from .logbook import Logbook, latency
 from .trial import Trial
 
 HERE = Path(__file__).parent
+REPLY_MSG = "检方的新证据还没有回应：先说一句话（可以参考律师笔记），再结束陈词。"
 IDLE_SECONDS = 2 * 3600
 ART = HERE / "art"            # 开场镜头的像素画（python -m twelve.art.case1 生成）
 AUDIO = HERE / "audio"        # 本地配乐：不进仓库（借用的曲子只在自己电脑上放），有就优先用
@@ -112,6 +113,7 @@ class Court:
         self.judge = Judge(self.case, client)
         self.trial = Trial(self.case)
         self.fired: set = set()          # 已经触发过的事件
+        self.fired_at: dict = {}         # 事件 id -> 触发时已说出口几句（要求回应的事件用它判断玩家回应了没有）
         self.seen = time.time()
         self.cache: dict = {}            # 草稿 -> Judgment；预览过的原句直接说出口时不用再等
         self.say_lock = threading.Lock()
@@ -161,14 +163,24 @@ class Court:
             if not due:
                 continue
             self.fired.add(ev["id"])
+            self.fired_at[ev["id"]] = len(t.history)
             t.apply_event(ev)
             self.judge = Judge(self.case, self.client)   # 案卷 / 在意点变了，题目要重组
             self.cache.clear()
             fired.append({"id": ev["id"], "title": ev.get("title", "庭审中断"), "text": ev.get("text", ""),
                           "dossier": ev.get("dossier", []), "dossier_view": ev.get("dossier_view"),
-                          "short": ev.get("short", ""), "advice": ev.get("advice", ""), "time": ev.get("time", 0)})
+                          "short": ev.get("short", ""), "advice": ev.get("advice", ""), "time": ev.get("time", 0),
+                          "require_reply": bool(ev.get("require_reply")), "reply_msg": ev.get("reply_msg", REPLY_MSG)})
             self.log("event", id=ev["id"], votes=t.votes(), leans={k: round(v, 2) for k, v in t.leans.items()})
         return fired
+
+    def owed_reply(self):
+        """要求回应的事件（require_reply）发生之后，玩家还一句话都没说：返回要提示的话，否则 None。"""
+        for ev in self.case.get("events", []):
+            at = self.fired_at.get(ev["id"])
+            if ev.get("require_reply") and at is not None and len(self.trial.history) <= at:
+                return ev.get("reply_msg", REPLY_MSG)
+        return None
 
     def end(self, verdict: dict, reason: str):
         """裁决只记一次（主动结束、时间到、说话时时间到，都会走到这里）。"""
@@ -196,7 +208,7 @@ def public_case(case: dict) -> dict:
                           "max_says": v.get("max_says", 0), "blurb": v.get("blurb", "")} for k, v in case.get("modes", {}).items()},
             "max_chars": case["config"]["max_chars"], "quote": case["config"].get("quote_max", 0),
             "brief_full": case["brief"],        # 阅读案卷页直接显示原文
-            "turns": [{"after_says": e.get("after_says"), "at_time_left": e.get("at_time_left")} for e in case.get("events", [])],   # 庭审中途会发生变化的时点（不含内容） "debounce": case["config"]["preview_debounce_ms"],
+            "turns": [{"after_says": e.get("after_says"), "at_time_left": e.get("at_time_left"), "require_reply": bool(e.get("require_reply"))} for e in case.get("events", [])],   # 庭审中途会发生变化的时点（不含内容） "debounce": case["config"]["preview_debounce_ms"],
             "swing_band": case["config"].get("swing_band", 0), "hint_cost": case["config"].get("hint_cost", 10),
             "jurors": [{"id": j["id"], "name": j["name"], "role": j["role"], "persona": j["persona"]}
                        for j in case["jurors"]]}
@@ -463,6 +475,9 @@ class App:
                 pending = self._events(c, force=True)
                 if pending:
                     return 200, {**pending, "time_left": t.time_left(), "continue": True}, sid
+                owed = c.owed_reply()
+                if owed:      # 反转之后至少要回应一句才能结束：先面对新证据，不能靠第一句话的运气直接收工
+                    return 200, {"continue": True, "need_reply": owed, "time_left": t.time_left()}, sid
                 t.rested = True
             v = t.verdict()
             c.end(v, "rested" if t.rested else "timeout")
