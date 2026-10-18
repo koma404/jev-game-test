@@ -227,6 +227,8 @@ class Trial:
         """事件只改数据：加案卷、改倾向、改陪审员在意的点 / 雷区、加论点、补时间。何时触发由 server 判断。"""
         c = self.cfg
         self.case["dossier"].extend(ev.get("dossier", []))
+        if self.case.get("dossier_view") is not None:      # 页面上显示的简版：和 dossier 一一对应
+            self.case["dossier_view"] = list(self.case["dossier_view"]) + list(ev.get("dossier_view") or [])
         self.case["arguments"].update(ev.get("arguments", {}))
         by_id = {j["id"]: j for j in self.jurors}
         for patch in ev.get("jurors", []):

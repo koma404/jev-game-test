@@ -165,7 +165,8 @@ class Court:
             self.judge = Judge(self.case, self.client)   # 案卷 / 在意点变了，题目要重组
             self.cache.clear()
             fired.append({"id": ev["id"], "title": ev.get("title", "庭审中断"), "text": ev.get("text", ""),
-                          "dossier": ev.get("dossier", []), "time": ev.get("time", 0)})
+                          "dossier": ev.get("dossier", []), "dossier_view": ev.get("dossier_view"),
+                          "short": ev.get("short", ""), "time": ev.get("time", 0)})
             self.log("event", id=ev["id"], votes=t.votes(), leans={k: round(v, 2) for k, v in t.leans.items()})
         return fired
 
@@ -185,7 +186,8 @@ class Court:
 
 def public_case(case: dict) -> dict:
     # 只给玩家看得见的东西：陪审员在意什么、讨厌什么是要靠观察去猜的
-    return {"id": case.get("id"), "title": case["title"], "brief": case["brief"], "dossier": case["dossier"],
+    return {"id": case.get("id"), "title": case["title"], "brief": case.get("brief_view") or case["brief"], "dossier": case["dossier"],
+            "dossier_view": case.get("dossier_view"),
             "examples": case.get("examples", []), "stars": case.get("stars", 1),
             "intro": [{"text": s.get("text", ""), "pix": load_art(s["art"]) if s.get("art") else None}
                       for s in case.get("intro", [])],
@@ -336,7 +338,8 @@ class App:
         fired = c.check_events(force)
         if not fired:
             return {}
-        return {"events": fired, "leans": c.trial.leans, "votes": c.trial.votes(), "dossier": c.case["dossier"]}
+        return {"events": fired, "leans": c.trial.leans, "votes": c.trial.votes(), "dossier": c.case["dossier"],
+                "dossier_view": c.case.get("dossier_view")}
 
     def _pick_case(self, body, beta):
         visible = [c["id"] for c in self.visible_cases(beta)]

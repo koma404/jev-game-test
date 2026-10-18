@@ -121,6 +121,22 @@ class TrialTests(unittest.TestCase):
         self.assertLess(e["short"].deltas["lin"], e["full"].deltas["lin"])
         self.assertAlmostEqual(e["full"].deltas["lin"], e["mine"].deltas["lin"], places=6)   # 写够了自己的话，引用不吃亏
 
+    def test_dossier_view_matches_the_dossier_item_for_item(self):
+        for cid in ("case1", "case2"):
+            case = load_case(cid)
+            self.assertEqual(len(case["dossier_view"]), len(case["dossier"]), cid)
+            for ev in case.get("events", []):
+                if ev.get("dossier"):
+                    self.assertEqual(len(ev["dossier_view"]), len(ev["dossier"]), cid + ev["id"])
+                    self.assertTrue(all(len(v["text"]) <= 30 for v in ev["dossier_view"]), cid + ev["id"])
+            self.assertTrue(all(v["side"] in "检辩" and v["tag"] and len(v["text"]) <= 30 for v in case["dossier_view"]), cid)
+        case = load_case("case2")                        # 事件加案卷时，简版一起加
+        tr = Trial(case, clock=Clock())
+        n = len(case["dossier_view"])
+        tr.apply_event(case["events"][0])
+        self.assertEqual(len(case["dossier_view"]), n + 2)
+        self.assertEqual(len(case["dossier_view"]), len(case["dossier"]))
+
     def test_copy_ratio_catches_verbatim_dossier_with_a_vacuous_tail(self):
         from twelve.judge import copy_ratio
         d = self.case["dossier"]
