@@ -137,6 +137,20 @@ class TrialTests(unittest.TestCase):
         self.assertEqual(len(case["dossier_view"]), n + 2)
         self.assertEqual(len(case["dossier_view"]), len(case["dossier"]))
 
+    def test_every_case_ships_the_same_features(self):
+        """第 1 关加的功能第 2 关也要有（10-18 用户反馈两关风格不一致）：以后新关卡漏项会在这里报错。"""
+        for cid in ("case1", "case2"):
+            case = load_case(cid)
+            for key in ("intro", "dossier_view", "brief_view", "examples", "blurb", "stars", "order", "modes"):
+                self.assertTrue(case.get(key), f"{cid} 缺 {key}")
+            self.assertIn("easy", case["modes"], cid)
+            m = case["modes"]["easy"]
+            self.assertTrue(m["label"] and m["blurb"] and m["time_limit"] > case["config"]["time_limit"] and m["max_says"] >= 5, cid)
+            self.assertTrue(all(len(s["text"]) <= 25 for s in case["intro"]), cid)                 # 开场字幕每句短
+            self.assertTrue(all(len(j["persona"]) <= 18 for j in case["jurors"]), cid)             # 陪审团入场卡片里的人设一行半
+            self.assertTrue(all(len(v["text"]) <= 40 for v in case["dossier_view"]), cid)
+            self.assertEqual(len(case["jurors"]), 12, cid)
+
     def test_copy_ratio_catches_verbatim_dossier_with_a_vacuous_tail(self):
         from twelve.judge import copy_ratio
         d = self.case["dossier"]
