@@ -151,6 +151,33 @@ class TrialTests(unittest.TestCase):
             self.assertTrue(all(len(v["text"]) <= 40 for v in case["dossier_view"]), cid)
             self.assertEqual(len(case["jurors"]), 12, cid)
 
+    def test_pasted_dossier_text_counts_as_a_quote_not_as_your_own_words(self):
+        from twelve.judge import expand_quotes
+        d = ["检方：甲甲甲甲甲甲甲", "辩方：乙乙乙乙乙乙乙"]
+        v = [{"text": "甲简版"}, {"text": "乙简版"}]
+        full, own, n = expand_quotes("「乙简版」所以他不在场", d, 2, v)               # 页面点案卷：贴进来的是简版，外面套「」
+        self.assertEqual((full, own, n), ("「辩方：乙乙乙乙乙乙乙」所以他不在场", "所以他不在场", 1))
+        full, own, n = expand_quotes("辩方：乙乙乙乙乙乙乙 再加一句", d, 2, v)          # 贴原文也认
+        self.assertEqual((n, own.strip()), (1, "再加一句"))
+        full, own, n = expand_quotes("乙简版乙简版乙简版 空话", d, 2, v)                 # 超过条数的不展开、也不算引用
+        self.assertEqual(n, 2)
+        self.assertIn("乙简版", own)
+        case = load_case("case2")                                                       # 引用不占字数：自己打的 ≤ max_chars 即可
+        self.assertGreaterEqual(case["config"]["quote_max"], 1)
+        quote = case["dossier_view"][3]["text"]
+        mine = "那么只剩检方的截图，车牌看不清，不能认定就是他的车"
+        text = "「" + quote + "」" + mine + "。" + "「" + case["dossier_view"][4]["text"] + "」"
+        self.assertGreater(len(text), 70)
+        tmp = expand_quotes(text, case["dossier"], case["config"]["quote_max"], case["dossier_view"])
+        self.assertEqual(tmp[2], 2)
+        self.assertLessEqual(len(tmp[1]), case["config"]["max_chars"])
+
+    def test_case2_reversal_has_a_fixed_schedule_and_a_hint_on_how_to_answer(self):
+        case = load_case("case2")
+        ev = case["events"][0]
+        self.assertEqual((ev["after_says"], ev["at_time_left"]), (3, 120))             # 第 3 句后，或剩 2 分钟时，先到者
+        self.assertTrue(ev.get("advice") and ev.get("short"))
+
     def test_copy_ratio_catches_verbatim_dossier_with_a_vacuous_tail(self):
         from twelve.judge import copy_ratio
         d = self.case["dossier"]

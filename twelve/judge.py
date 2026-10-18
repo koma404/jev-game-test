@@ -86,22 +86,49 @@ def build_questions(case: dict) -> dict:
     return q
 
 
-_QUOTE = re.compile(r"〔案卷(\d+)〕")
+_QUOTE = re.compile(r"〔案卷(\d+)〕")      # 旧版的引用标记，仍然认
 
 
-def expand_quotes(text: str, dossier: list, max_quotes: int = 2):
-    """玩家点案卷条目会在输入框里插入〔案卷3〕。返回 (给 Jev 看的全文, 玩家自己写的部分, 引用条数)。
-    每句最多引 max_quotes 条；编号不存在或超出条数的标记直接删掉（不算玩家的字，防止拿标记凑字数）。"""
-    full, own, n, last = [], [], 0, 0
-    for m in _QUOTE.finditer(text):
+def expand_quotes(text: str, dossier: list, max_quotes: int = 2, view: list | None = None):
+    """玩家点案卷条目，输入框里会贴进这一条的文字（简版或原文，外面套「」）。返回 (给 Jev 看的全文, 玩家自己写的部分, 引用条数)。
+    识别方式：在玩家的话里找案卷条目的原文或简版（`view[i]["text"]`）的**原样文字**，找到的每一处（最多 max_quotes 处）
+    在全文里换成案卷原文、在"自己写的部分"里删掉；超出条数的不展开、也不删（当成玩家自己打的字，照搬检测照常比对）。
+    旧版的〔案卷N〕标记也认；编号不存在的标记直接删掉，不算玩家的字。"""
+    cands = []                                   # (文字, 条目序号)；长的先找，免得简版是原文的一部分时被截断
+    for i, d in enumerate(dossier):
+        cands.append((d, i))
+        if view and i < len(view) and view[i].get("text") and view[i]["text"] != d:
+            cands.append((view[i]["text"], i))
+    cands.sort(key=lambda c: -len(c[0]))
+    spans, taken = [], [False] * len(text)
+    for m in _QUOTE.finditer(text):              # 旧版标记
         i = int(m.group(1)) - 1
-        if n >= max_quotes or not 0 <= i < len(dossier):
-            continue
-        full.append(text[last:m.start()]); own.append(text[last:m.start()])
+        if 0 <= i < len(dossier) and len(spans) < max_quotes:
+            spans.append((m.start(), m.end(), i)); taken[m.start():m.end()] = [True] * (m.end() - m.start())
+    for cand, i in cands:
+        start = 0
+        while len(spans) < max_quotes:
+            k = text.find(cand, start)
+            if k < 0:
+                break
+            end = k + len(cand)
+            if any(taken[k:end]):
+                start = k + 1
+                continue
+            if k > 0 and text[k - 1] == "「" and not taken[k - 1]:
+                k -= 1
+            if end < len(text) and text[end] == "」" and not taken[end]:
+                end += 1
+            spans.append((k, end, i)); taken[k:end] = [True] * (end - k)
+            start = end
+    spans.sort()
+    full, own, last = [], [], 0
+    for k, end, i in spans:
+        full.append(text[last:k]); own.append(text[last:k])
         full.append("「" + dossier[i] + "」")
-        last, n = m.end(), n + 1
+        last = end
     full.append(text[last:]); own.append(text[last:])
-    return _QUOTE.sub("", "".join(full)), _QUOTE.sub("", "".join(own)), n
+    return _QUOTE.sub("", "".join(full)), _QUOTE.sub("", "".join(own)), len(spans)
 
 
 def state_for(case: dict, text: str) -> dict:
@@ -134,7 +161,7 @@ class Judge:
         import time
         t0 = time.time()
         qmax = self.case["config"].get("quote_max", 0)       # 0 = 这一关不开引用，〔案卷3〕当普通文字
-        full, own, n = expand_quotes(text, self.case["dossier"], qmax) if qmax else (text, text, 0)
+        full, own, n = expand_quotes(text, self.case["dossier"], qmax, self.case.get("dossier_view")) if qmax else (text, text, 0)
         resp = self.client.ask(state_for(self.case, full), self.questions)
         ms = getattr(self.client, "last_ms", 0.0) or (time.time() - t0) * 1000
         jd = parse(self.case, resp["answers"], ms)

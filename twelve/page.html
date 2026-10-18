@@ -80,7 +80,7 @@ button.case .won{color:var(--acq)}
 #docfull{margin-left:6px}
 /* 阅读案卷：开庭前的一页，不计时；点一条展开原文 */
 #readl{list-style:none;padding:0;margin:8px 0}
-#readl li{padding:6px 4px;border-bottom:1px solid var(--line);cursor:pointer;line-height:1.5}
+#readl li{padding:6px 4px;border-bottom:1px solid var(--line);line-height:1.5}
 #readl li:last-child{border-bottom:0}
 #readl .fu{display:none;margin:4px 0 0 0;padding:4px 8px;border-left:3px solid var(--line);font-size:13px;color:var(--dim)}
 #readl li.open .fu{display:block} #readl .ar{float:right;color:var(--dim);font-size:12px}
@@ -104,6 +104,9 @@ button.cd .ch.won{color:var(--acq);border-color:var(--acq)} button.cd .ch.tip{co
 .prepb{flex:1;background:var(--card);color:var(--fg);border:2px solid var(--line);border-radius:10px;padding:8px 6px;font:inherit;cursor:pointer;line-height:1.3}
 .prepb.req{border-color:var(--swing);background:var(--swingbg)} .prepb.ok{border-color:var(--acq);color:var(--acq)}
 #needsee{margin:2px 0 8px;min-height:1.4em}
+#musichint{display:none;position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:80;background:rgba(20,22,25,.88);color:#fff;border:1px solid #6cb6e6;border-radius:20px;padding:6px 16px;font-size:14px;pointer-events:none;animation:mh 1.6s ease-in-out infinite}
+@keyframes mh{50%{opacity:.55}}
+#overlay .advice{margin:8px 0;padding:8px 12px;border-left:4px solid var(--accent);background:var(--tipbg);border-radius:6px;font-size:14px;line-height:1.5}
 /* 开场镜头：仿像素游戏开场，黑底白框，打字机字幕 */
 #intro{position:fixed;left:0;top:0;right:0;bottom:0;z-index:60;background:#000;color:#fff;display:none;flex-direction:column;align-items:center;justify-content:center;padding:16px;cursor:pointer;-webkit-user-select:none;user-select:none}
 #intro canvas{width:640px;max-width:100%;height:auto;border:3px solid #fff;image-rendering:pixelated;image-rendering:crisp-edges;display:block;opacity:0;transition:opacity .25s}
@@ -212,7 +215,7 @@ button:disabled{opacity:.5;cursor:default}
     <div class="panel"><div id="log"></div></div>
     <div class="panel" id="dossier">
       <b>案卷</b><button id="docfull" class="ghost sm" style="display:none">展开原文</button><button id="docclose" class="ghost sm">收起</button>
-      <div class="note" id="quotehint" style="display:none;margin-top:4px">点一条可以<b>引用</b>到输入框（打字慢也不吃亏），但引完要写出你自己的推理。</div>
+      <div class="note" id="quotehint" style="display:none;margin-top:4px">点一条会把这条案卷<b>贴进输入框</b>（引用的部分不占字数、不用自己打），但贴完要接着写你自己的推理。</div>
       <ol id="facts"></ol>
     </div>
   </div>
@@ -223,6 +226,7 @@ button:disabled{opacity:.5;cursor:default}
   <div id="cases2"></div>
   <p class="foot" id="selfoot"></p>
 </div></div>
+<div id="musichint">♪ 点一下页面任意处，开启配乐</div>
 <div id="toast"></div>
 <div id="stamp"><b id="stampword"></b><span id="stampsub"></span></div>
 <div id="intro"><button id="skipintro">跳过 ›</button><canvas id="introcv" width="160" height="90"></canvas><div class="cap" id="introcap"></div><div class="tip">点击 / 空格 / 回车 继续</div></div>
@@ -465,14 +469,15 @@ window.onerror=function(msg, src, line, col){
     if(cur){ var old=cur; fade(old, 0, function(){ old.pause(); }); cur=null; }
     if(muted || !slot || !M[slot]) return;
     var a=new Audio(M[slot]); a.loop=true; a.volume=0; cur=a;
-    var pr=a.play(); if(pr && pr['catch']) pr['catch'](function(){ audioWaiting=a; });   // 浏览器要求先有一次点击才能出声
+    var pr=a.play(); if(pr && pr['catch']) pr['catch'](function(){ audioWaiting=a; musicHint(true); });   // 浏览器要求先有一次点击才能出声
     fade(a, 0.5);
   }
-  function unblock(){ if(audioWaiting){ var a=audioWaiting; audioWaiting=null; var pr=a.play(); if(pr && pr['catch']) pr['catch'](function(){}); } }
+  function musicHint(on){ var h=$('musichint'); if(h) h.style.display=(on&&!muted)?'block':'none'; }
+  function unblock(){ if(audioWaiting){ var a=audioWaiting; audioWaiting=null; musicHint(false); var pr=a.play(); if(pr && pr['catch']) pr['catch'](function(){}); } }
   document.addEventListener('click', unblock, true); document.addEventListener('keydown', unblock, true);
   $('mute').onclick=function(){
     muted=!muted; try{ localStorage.setItem('twelve_mute', muted?'1':'0'); }catch(e){}
-    this.textContent=muted?'♪×':'♪'; this.style.opacity=muted?0.5:1;
+    this.textContent=muted?'♪×':'♪'; this.style.opacity=muted?0.5:1; if(muted) musicHint(false);
     var s=curSlot; curSlot=''; if(muted){ if(cur){ var o=cur; fade(o,0,function(){ o.pause(); }); cur=null; } curSlot=s; } else music(s);
   };
   // ---- 木槌声：浏览器现场合成（低沉的"咚" + 木头的"嗒"），不用音频文件；静音时不响 ----
@@ -576,15 +581,14 @@ window.onerror=function(msg, src, line, col){
     $('docfull').style.display=viewOk(list)?'inline-block':'none'; $('docfull').textContent=showFullDoc?'收起原文':'展开原文';
     if(C&&C.quote) $('quotehint').style.display='block';
   }
-  // 引用案卷：点一条，把〔案卷N〕插进输入框；服务端展开成原文给 Jev。引了就要写自己的话
+  // 引用案卷：点一条，把这一条的文字（正在显示的简版或原文）贴进输入框，外面套「」；服务端认得出这是案卷、换成原文给 Jev。引了就要写自己的话
   function quoteIt(k){ return function(){
     if(!started||over||ending){ toast('开庭后才能引用案卷'); return; }
-    var tag='〔案卷'+(k+1)+'〕';
-    if((inp.value.match(/\u3014\u6848\u5377\d+\u3015/g)||[]).length>=C.quote){ doc(false); toast('一句话最多引用 '+C.quote+' 条'); return; }
-    if(inp.value.length+tag.length>C.max_chars){ doc(false); toast('字数已满'); return; }
+    var useView=viewOk(C.dossier)&&!showFullDoc, txt='「'+(useView?C.dossier_view[k].text:C.dossier[k])+'」';
+    if((inp.value.match(/「/g)||[]).length>=C.quote){ doc(false); toast('一句话最多引用 '+C.quote+' 条'); return; }
     var a=inp.selectionStart==null?inp.value.length:inp.selectionStart, b=inp.selectionEnd==null?a:inp.selectionEnd;
-    inp.value=inp.value.slice(0,a)+tag+inp.value.slice(b);
-    var pos=a+tag.length; try{ inp.setSelectionRange(pos,pos); }catch(e){}
+    inp.value=inp.value.slice(0,a)+txt+inp.value.slice(b);
+    var pos=a+txt.length; try{ inp.setSelectionRange(pos,pos); }catch(e){}
     doc(false); inp.focus();
   }; }
   // ---- 庭审中途的事件：打断一下，读完再继续 ----
@@ -596,7 +600,7 @@ window.onerror=function(msg, src, line, col){
       h+='<h2></h2><p></p>'; if(e.dossier&&e.dossier.length){ h+='<ul class="evd">'; for(var k=0;k<e.dossier.length;k++) h+='<li></li>'; h+='</ul>'; } }
     $('box').innerHTML=h+'<p><button id="evok">继续陈词</button></p>';
     var hs=$('box').getElementsByTagName('h2'), ps=$('box').getElementsByTagName('p'), uls=$('box').getElementsByTagName('ul'), u=0;
-    for(var j=0;j<r.events.length;j++){ var ev=r.events[j]; hs[j].textContent=ev.title; ps[j].textContent=ev.short||ev.text;
+    for(var j=0;j<r.events.length;j++){ var ev=r.events[j]; hs[j].textContent=ev.title; ps[j].textContent=ev.short||ev.text; if(ev.advice){ var ad=document.createElement('div'); ad.className='advice'; ad.textContent=ev.advice; ps[j].parentNode.insertBefore(ad, ps[j].nextSibling); }
       if(ev.dossier&&ev.dossier.length){ var lis=uls[u++].getElementsByTagName('li'); for(var q=0;q<ev.dossier.length;q++) lis[q].textContent=ev.dossier_view&&ev.dossier_view[q]?ev.dossier_view[q].text:ev.dossier[q]; } }
     $('overlay').style.display='flex'; $('evok').onclick=function(){ $('overlay').style.display='none'; $('in').focus(); };
     if(r.dossier){ C.dossier=r.dossier; C.dossier_view=r.dossier_view; renderDossier(r.dossier, added); }
@@ -670,7 +674,7 @@ window.onerror=function(msg, src, line, col){
     if(r.cases) nCases=r.cases;
     if(s!==200){ $('box').innerHTML='<h2>无法开庭</h2><p></p>'; $('box').getElementsByTagName('p')[0].textContent=r.error||('错误 '+s); $('overlay').style.display='flex'; return; }
     C=r.case; jurors=C.jurors; debounce=(C.debounce==null?120:C.debounce); swing=C.swing_band||0;
-    $('title').textContent=C.title; $('need').textContent=C.win_votes; inp.setAttribute('maxlength', C.max_chars);
+    $('title').textContent=C.title; $('need').textContent=C.win_votes; inp.setAttribute('maxlength', C.max_chars+(C.quote||0)*80);
     var g='';
     for(var i=0;i<jurors.length;i++){ var j=jurors[i];
       g+='<div class="j" id="j_'+j.id+'"><div id="f_'+j.id+'"></div><div class="n">'+esc(j.name)+'</div><div class="r"><span class="role">'+esc(j.role)+'</span><span class="pers"><br>'+esc(j.persona)+'</span></div><div class="bar"><span class="mid"></span><i id="b_'+j.id+'"></i></div><div class="bub" id="u_'+j.id+'"></div></div>'; }
@@ -702,19 +706,16 @@ window.onerror=function(msg, src, line, col){
     var showRead=function(done){
       music('intro');
       var v=C.dossier_view, ok=v&&v.length===C.dossier.length, h='<h2>阅读案卷</h2><p class="note" style="margin:0" id="readbrief"></p>'+
-        '<p class="note" style="margin:4px 0 0">时钟还没开始走，慢慢读。点一条可以展开原文。</p><ol id="readl"></ol>';
-      $('box').innerHTML=h+'<p style="margin:0"><button id="readok">读完了</button> <button id="readall" class="ghost sm">全部展开</button></p>';
-      $('readbrief').textContent=C.brief; $('overlay').style.display='flex';
-      var ul=$('readl'), allOpen=false;
+        '<p class="note" style="margin:4px 0 0">时钟还没开始走，慢慢读。开庭后案卷栏里是简版，随时能切回原文。</p><ol id="readl"></ol>';
+      $('box').innerHTML=h+'<p style="margin:0"><button id="readok">读完了</button></p>';
+      $('readbrief').textContent=C.brief_full||C.brief; $('overlay').style.display='flex';
+      var ul=$('readl');
       for(var i=0;i<C.dossier.length;i++){
-        var li=document.createElement('li'), tg=document.createElement('i'), sh=document.createElement('span'), ar=document.createElement('span'), fu=document.createElement('div');
-        tg.className='tg'+(ok&&v[i].side==='检'?' j':''); tg.textContent=ok?v[i].side+'·'+v[i].tag:(C.dossier[i].indexOf('检方')===0?'检':'辩');
-        sh.textContent=ok?v[i].text:C.dossier[i]; ar.className='ar'; fu.className='fu'; fu.textContent=C.dossier[i];
-        li.appendChild(tg); li.appendChild(sh); if(ok){ ar.textContent='▾'; li.appendChild(ar); li.appendChild(fu); }
-        li.onclick=function(){ this.className=this.className==='open'?'':'open'; };
-        ul.appendChild(li); }
-      $('readall').onclick=function(){ allOpen=!allOpen; var lis=ul.getElementsByTagName('li'); for(var k=0;k<lis.length;k++) lis[k].className=allOpen?'open':''; this.textContent=allOpen?'全部收起':'全部展开'; };
-      if(!ok) $('readall').style.display='none';
+        var li=document.createElement('li'), tg=document.createElement('i'), tx=document.createElement('span');
+        tg.className='tg'+((ok?v[i].side:(C.dossier[i].indexOf('检方')===0?'检':'辩'))==='检'?' j':'');
+        tg.textContent=ok?v[i].side+'·'+v[i].tag:(C.dossier[i].indexOf('检方')===0?'检':'辩');
+        tx.textContent=C.dossier[i];
+        li.appendChild(tg); li.appendChild(tx); ul.appendChild(li); }
       $('readok').onclick=function(){ try{ localStorage.setItem(readKey,'1'); }catch(e){} done(); };
     };
     var showBrief=function(){
@@ -726,6 +727,7 @@ window.onerror=function(msg, src, line, col){
       '<li>打一句辩护的话，<b>停一下</b>，看 12 张脸谁点头、谁皱眉。</li>'+
       '<li>满意了按<b>回车</b>，这句话才算说出口。</li>'+
       '<li>'+Math.round(C.time_limit/60)+' 分钟内让至少 <b>'+C.win_votes+'</b> 人倾向无罪（<span style="color:var(--acq)">绿框</span>）。'+(phone?'事实在「案卷」里。':'事实在右边的案卷里。')+'</li></ol>'+
+      (C.turns&&C.turns.length?'<p class="note" style="margin:6px 0 0">⚠ 庭审中途案情会有变化：'+C.turns.map(function(t){ var p=[]; if(t.after_says) p.push('你说出口第 '+t.after_says+' 句后'); if(t.at_time_left) p.push('剩 '+Math.floor(t.at_time_left/60)+':'+('0'+t.at_time_left%60).slice(-2)+' 时'); return p.join('，或'); }).join('；')+'（先到者为准；你提前点「结束陈词」也会先发生）。</p>':'')+
       (C.modes&&C.modes.easy?'<div class="modes" id="modes">'+'<label class="mo"><input type="radio" name="mode" value=""><b>标准陈词</b><span>'+Math.round(C.time_limit/60)+' 分钟 · 句数不限</span></label>'+'<label class="mo"><input type="radio" name="mode" value="easy"><b>'+esc(C.modes.easy.label)+'</b><span>'+Math.round(C.modes.easy.time_limit/60)+' 分钟 · 限 '+C.modes.easy.max_says+' 句</span></label></div>'+'<p class="note" id="modenote"></p>':'')+
       '<div class="prep"><button id="reread" class="prepb"></button><button id="roster" class="prepb"></button></div><p class="note" id="needsee"></p>'+
       '<p><button id="start">开始陈词</button> <button id="more" class="ghost sm">'+(phone?'详细说明 ▾':'收起说明 ▴')+'</button>'+(hasIntro?' <button id="replay" class="ghost sm">重看开场</button>':'')+'</p>'+
@@ -738,7 +740,7 @@ window.onerror=function(msg, src, line, col){
       '<h3>窍门</h3><ul>'+
       '<li>每个人在意的东西不一样：同一句话，有人点头，有人皱眉。看看他们的身份。</li>'+
       '<li>照抄案卷、反复讲同一件事、话说一半都不管用——要说出事实<b>意味着什么</b>。</li>'+
-      (C.quote?'<li>打字慢？点右边（手机上点「案卷」）里的条目就能<b>引用</b>，但引完要写上你自己的话。</li>':'')+
+      (C.quote?'<li>打字慢？点案卷里的一条，它会直接贴进输入框，贴完接着写你自己的话。</li>':'')+
       '<li>卡住了点<b>提示</b>（扣 '+cost+' 秒）；连续两句没有进展，会免费送你一次。</li>'+
       '<li>别想着下命令——陪审员不吃这一套。时间一开始就不会停。</li></ul></div>';
     $('more').onclick=function(){ var d=$('detail'), open=d.style.display==='none';

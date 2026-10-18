@@ -15,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from game.jev_client import JevError
-from .judge import Judge, MockClient
+from .judge import Judge, MockClient, expand_quotes
 from .logbook import Logbook, latency
 from .trial import Trial
 
@@ -166,7 +166,7 @@ class Court:
             self.cache.clear()
             fired.append({"id": ev["id"], "title": ev.get("title", "庭审中断"), "text": ev.get("text", ""),
                           "dossier": ev.get("dossier", []), "dossier_view": ev.get("dossier_view"),
-                          "short": ev.get("short", ""), "time": ev.get("time", 0)})
+                          "short": ev.get("short", ""), "advice": ev.get("advice", ""), "time": ev.get("time", 0)})
             self.log("event", id=ev["id"], votes=t.votes(), leans={k: round(v, 2) for k, v in t.leans.items()})
         return fired
 
@@ -194,7 +194,9 @@ def public_case(case: dict) -> dict:
             "time_limit": case["config"]["time_limit"], "win_votes": case["config"]["win_votes"],
             "modes": {k: {"label": v.get("label", k), "time_limit": v.get("time_limit", case["config"]["time_limit"]),
                           "max_says": v.get("max_says", 0), "blurb": v.get("blurb", "")} for k, v in case.get("modes", {}).items()},
-            "max_chars": case["config"]["max_chars"], "quote": case["config"].get("quote_max", 0), "debounce": case["config"]["preview_debounce_ms"],
+            "max_chars": case["config"]["max_chars"], "quote": case["config"].get("quote_max", 0),
+            "brief_full": case["brief"],        # 阅读案卷页直接显示原文
+            "turns": [{"after_says": e.get("after_says"), "at_time_left": e.get("at_time_left")} for e in case.get("events", [])],   # 庭审中途会发生变化的时点（不含内容） "debounce": case["config"]["preview_debounce_ms"],
             "swing_band": case["config"].get("swing_band", 0), "hint_cost": case["config"].get("hint_cost", 10),
             "jurors": [{"id": j["id"], "name": j["name"], "role": j["role"], "persona": j["persona"]}
                        for j in case["jurors"]]}
@@ -468,8 +470,12 @@ class App:
         text = str(body.get("text", "")).strip()
         if t.over:
             return over()
-        if len(text) > c.case["config"]["max_chars"]:
-            return 200, {"error": c.case["texts"]["too_long"].format(n=c.case["config"]["max_chars"])}, sid
+        cfg_ = c.case["config"]
+        qmax = cfg_.get("quote_max", 0)
+        # 引用的案卷文字不占字数：只算玩家自己打的；整句另设一个硬上限防滥用
+        typed = len(expand_quotes(text, c.case["dossier"], qmax, c.case.get("dossier_view"))[1]) if qmax else len(text)
+        if typed > cfg_["max_chars"] or len(text) > cfg_["max_chars"] + qmax * 80:
+            return 200, {"error": c.case["texts"]["too_long"].format(n=cfg_["max_chars"])}, sid
         if path in ("/api/preview", "/api/say") and self.guard.over_budget():
             return 200, {"error": "今天的体验额度已经用完了。可以结束陈词看看裁决。"}, sid
         if path == "/api/preview":
