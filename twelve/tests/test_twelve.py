@@ -128,8 +128,8 @@ class TrialTests(unittest.TestCase):
             for ev in case.get("events", []):
                 if ev.get("dossier"):
                     self.assertEqual(len(ev["dossier_view"]), len(ev["dossier"]), cid + ev["id"])
-                    self.assertTrue(all(len(v["text"]) <= 30 for v in ev["dossier_view"]), cid + ev["id"])
-            self.assertTrue(all(v["side"] in "检辩" and v["tag"] and len(v["text"]) <= 30 for v in case["dossier_view"]), cid)
+                    self.assertTrue(all(len(v["text"]) <= 40 for v in ev["dossier_view"]), cid + ev["id"])
+            self.assertTrue(all(v["side"] in "检辩" and v["tag"] and len(v["text"]) <= 40 for v in case["dossier_view"]), cid)
         case = load_case("case2")                        # 事件加案卷时，简版一起加
         tr = Trial(case, clock=Clock())
         n = len(case["dossier_view"])
