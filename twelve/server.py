@@ -192,7 +192,7 @@ def public_case(case: dict) -> dict:
             "time_limit": case["config"]["time_limit"], "win_votes": case["config"]["win_votes"],
             "modes": {k: {"label": v.get("label", k), "time_limit": v.get("time_limit", case["config"]["time_limit"]),
                           "max_says": v.get("max_says", 0)} for k, v in case.get("modes", {}).items()},
-            "max_chars": case["config"]["max_chars"], "debounce": case["config"]["preview_debounce_ms"],
+            "max_chars": case["config"]["max_chars"], "quote": case["config"].get("quote_max", 0), "debounce": case["config"]["preview_debounce_ms"],
             "swing_band": case["config"].get("swing_band", 0), "hint_cost": case["config"].get("hint_cost", 10),
             "jurors": [{"id": j["id"], "name": j["name"], "role": j["role"], "persona": j["persona"]}
                        for j in case["jurors"]]}

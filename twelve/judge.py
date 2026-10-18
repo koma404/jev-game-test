@@ -28,6 +28,8 @@ class Judgment:
     recite: float = 0.0
     incomplete: float = 0.0
     copied: float = 0.0                           # 这句话有多少字是照搬案卷原文（代码比对，不问 Jev）
+    quoted: int = 0                               # 用「引用案卷」引了几条（〔案卷3〕）
+    own_chars: int = 0                            # 引用时：玩家自己写的字数（去标点），只有 quoted > 0 才有意义
     ms: float = 0.0                               # 这次请求的往返耗时
     cost: float = 0.0                             # 这次请求花了多少美元（OpenRouter 返回；没有就按 token 估）
 
@@ -84,6 +86,24 @@ def build_questions(case: dict) -> dict:
     return q
 
 
+_QUOTE = re.compile(r"〔案卷(\d+)〕")
+
+
+def expand_quotes(text: str, dossier: list, max_quotes: int = 2):
+    """玩家点案卷条目会在输入框里插入〔案卷3〕。返回 (给 Jev 看的全文, 玩家自己写的部分, 引用条数)。
+    每句最多引 max_quotes 条；编号不存在或超出条数的标记直接删掉（不算玩家的字，防止拿标记凑字数）。"""
+    full, own, n, last = [], [], 0, 0
+    for m in _QUOTE.finditer(text):
+        i = int(m.group(1)) - 1
+        if n >= max_quotes or not 0 <= i < len(dossier):
+            continue
+        full.append(text[last:m.start()]); own.append(text[last:m.start()])
+        full.append("「" + dossier[i] + "」")
+        last, n = m.end(), n + 1
+    full.append(text[last:]); own.append(text[last:])
+    return _QUOTE.sub("", "".join(full)), _QUOTE.sub("", "".join(own)), n
+
+
 def state_for(case: dict, text: str) -> dict:
     # 只放这一回合需要的：案情摘要 + 这句话
     return {"case": case["brief"] + " " + " ".join(case["dossier"]), "player_said": text}
@@ -113,10 +133,13 @@ class Judge:
     def judge(self, text: str) -> Judgment:
         import time
         t0 = time.time()
-        resp = self.client.ask(state_for(self.case, text), self.questions)
+        qmax = self.case["config"].get("quote_max", 0)       # 0 = 这一关不开引用，〔案卷3〕当普通文字
+        full, own, n = expand_quotes(text, self.case["dossier"], qmax) if qmax else (text, text, 0)
+        resp = self.client.ask(state_for(self.case, full), self.questions)
         ms = getattr(self.client, "last_ms", 0.0) or (time.time() - t0) * 1000
         jd = parse(self.case, resp["answers"], ms)
-        jd.copied = copy_ratio(text, self.case["dossier"])
+        jd.copied = copy_ratio(own, self.case["dossier"])      # 引用的部分不算照搬，只比玩家自己写的字
+        jd.quoted, jd.own_chars = n, len(_PUNCT.sub("", own))
         u = resp.get("usage") or {}
         # 输出免费；没有 cost 字段时按输入 $0.042 / 百万 token 估算
         if getattr(self.client, "is_local", False):

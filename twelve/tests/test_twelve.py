@@ -85,6 +85,42 @@ class TrialTests(unittest.TestCase):
         full = self.t.speak("…不能就这样定罪。", jd(hits={"han", "he"}, argument="no_loot")).deltas["han"]
         self.assertGreater(full, 0.5)
 
+    def test_quote_markers_expand_for_jev_and_only_when_the_case_allows_it(self):
+        from twelve.judge import expand_quotes
+        d = ["检方：甲", "辩方：乙", "辩方：丙"]
+        full, own, n = expand_quotes("〔案卷2〕所以他不在场〔案卷9〕", d)
+        self.assertEqual((full, own, n), ("「辩方：乙」所以他不在场", "所以他不在场", 1))     # 编号不存在的标记直接删
+        full, own, n = expand_quotes("〔案卷1〕〔案卷2〕〔案卷3〕空话", d, max_quotes=2)
+        self.assertEqual((n, own), (2, "空话"))                                                  # 超出条数的不展开，也不算玩家的字
+        seen = []
+        case = load_case()
+        class Spy(MockClient):
+            def ask(self, state, questions):
+                seen.append(state["player_said"])
+                return super().ask(state, questions)
+        case["config"]["quote_max"] = 2
+        jd1 = Judge(case, Spy(case)).judge("〔案卷3〕所以他根本没有时间")
+        self.assertIn(case["dossier"][2], seen[0])
+        self.assertEqual((jd1.quoted, jd1.own_chars), (1, len("所以他根本没有时间")))
+        self.assertEqual(jd1.copied, 0.0)                                                        # 引用的原文不算照搬
+        case["config"]["quote_max"] = 0
+        jd2 = Judge(case, Spy(case)).judge("〔案卷3〕所以他根本没有时间")
+        self.assertIn("〔案卷3〕", seen[1])                                                       # 没开引用：原样当普通文字
+        self.assertEqual(jd2.quoted, 0)
+
+    def test_quoting_needs_your_own_words(self):
+        self.t.cfg = dict(self.t.cfg, quote_own_min=4, quote_own_full=16, recite_cut=0.7, recite_base_cut=0.9, quality_center=1.5)
+        mine = jd(hits={"lin"}, quality=3.0)
+        empty = jd(hits={"lin"}, quality=3.0); empty.quoted, empty.own_chars = 2, 3          # 引了两条 + 三个字
+        short = jd(hits={"lin"}, quality=3.0); short.quoted, short.own_chars = 1, 12        # 一条 + 一小句自己的推理
+        full = jd(hits={"lin"}, quality=3.0); full.quoted, full.own_chars = 1, 30
+        e = {n: self.t.effect(x) for n, x in dict(mine=mine, empty=empty, short=short, full=full).items()}
+        self.assertLess(e["empty"].deltas["lin"], 0.35 * e["mine"].deltas["lin"])
+        self.assertTrue(e["empty"].recited)
+        self.assertLess(e["empty"].deltas["lin"], e["short"].deltas["lin"])
+        self.assertLess(e["short"].deltas["lin"], e["full"].deltas["lin"])
+        self.assertAlmostEqual(e["full"].deltas["lin"], e["mine"].deltas["lin"], places=6)   # 写够了自己的话，引用不吃亏
+
     def test_copy_ratio_catches_verbatim_dossier_with_a_vacuous_tail(self):
         from twelve.judge import copy_ratio
         d = self.case["dossier"]

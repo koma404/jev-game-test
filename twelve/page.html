@@ -52,6 +52,7 @@ button.case:hover{border-color:var(--accent)}
 button.case .st{color:var(--swing);margin-right:8px;letter-spacing:1px} button.case b{font-size:16px}
 button.case .bl{display:block;font-size:14px;color:var(--fg)} button.case .meta{display:block;font-size:12px;color:var(--dim)}
 button.case .won{color:var(--acq)}
+#facts.q li{cursor:pointer;border-radius:4px} #facts.q li:hover{background:var(--swingbg)} #facts li .qn{color:var(--accent);font-size:12px;margin-left:6px}
 #facts li.new{background:var(--swingbg);border-left:3px solid var(--swing);padding-left:6px}
 .evd li{margin:4px 0;font-weight:bold}
 /* 陪审团入场：开庭前看一遍 12 个人（时钟还没开始走） */
@@ -174,6 +175,7 @@ button:disabled{opacity:.5;cursor:default}
     <div class="panel"><div id="log"></div></div>
     <div class="panel" id="dossier">
       <b>案卷</b><button id="docclose" class="ghost sm">收起</button>
+      <div class="note" id="quotehint" style="display:none;margin-top:4px">点一条可以<b>引用</b>到输入框（打字慢也不吃亏），但引完要写出你自己的推理。</div>
       <ol id="facts"></ol>
     </div>
   </div>
@@ -498,8 +500,21 @@ window.onerror=function(msg, src, line, col){
   // ---- 案卷（庭审中途的事件会加新证据，新加的标出来）----
   function renderDossier(list, nNew){
     var f=''; for(var k=0;k<list.length;k++) f+='<li'+(k>=list.length-nNew?' class="new"':'')+'></li>'; $('facts').innerHTML=f;
-    var li=$('facts').getElementsByTagName('li'); for(var m=0;m<list.length;m++) li[m].textContent=list[m];
+    var li=$('facts').getElementsByTagName('li'); for(var m=0;m<list.length;m++){ li[m].textContent=list[m]; if(C&&C.quote) li[m].onclick=quoteIt(m); }
+    $('facts').className=(C&&C.quote)?'q':'';
+    if(C&&C.quote) $('quotehint').style.display='block';
   }
+  // 引用案卷：点一条，把〔案卷N〕插进输入框；服务端展开成原文给 Jev。引了就要写自己的话
+  function quoteIt(k){ return function(){
+    if(!started||over||ending){ toast('开庭后才能引用案卷'); return; }
+    var tag='〔案卷'+(k+1)+'〕';
+    if((inp.value.match(/\u3014\u6848\u5377\d+\u3015/g)||[]).length>=C.quote){ doc(false); toast('一句话最多引用 '+C.quote+' 条'); return; }
+    if(inp.value.length+tag.length>C.max_chars){ doc(false); toast('字数已满'); return; }
+    var a=inp.selectionStart==null?inp.value.length:inp.selectionStart, b=inp.selectionEnd==null?a:inp.selectionEnd;
+    inp.value=inp.value.slice(0,a)+tag+inp.value.slice(b);
+    var pos=a+tag.length; try{ inp.setSelectionRange(pos,pos); }catch(e){}
+    doc(false); inp.focus();
+  }; }
   // ---- 庭审中途的事件：打断一下，读完再继续 ----
   function handleEvents(r, keep){
     if(!r.events||!r.events.length) return;
@@ -625,6 +640,7 @@ window.onerror=function(msg, src, line, col){
       '<h3>窍门</h3><ul>'+
       '<li>每个人在意的东西不一样：同一句话，有人点头，有人皱眉。看看他们的身份。</li>'+
       '<li>照抄案卷、反复讲同一件事、话说一半都不管用——要说出事实<b>意味着什么</b>。</li>'+
+      (C.quote?'<li>打字慢？点右边（手机上点「案卷」）里的条目就能<b>引用</b>，但引完要写上你自己的话。</li>':'')+
       '<li>卡住了点<b>提示</b>（扣 '+cost+' 秒）；连续两句没有进展，会免费送你一次。</li>'+
       '<li>别想着下命令——陪审员不吃这一套。时间一开始就不会停。</li></ul></div>';
     $('more').onclick=function(){ var d=$('detail'), open=d.style.display==='none';

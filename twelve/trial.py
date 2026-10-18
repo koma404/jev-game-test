@@ -119,6 +119,10 @@ class Trial:
         lo, hi = c.get("recite_from", 0.0), c.get("recite_full", 1.0)
         rr = max(self._ramp(jd.recite, lo, hi),
                  self._ramp(getattr(jd, "copied", 0.0), c.get("copy_from", 2.0), c.get("copy_full", 3.0)))   # 默认不启用
+        if getattr(jd, "quoted", 0):
+            # 引用案卷：引的部分不用自己打，但引了就得有自己的话——自己写的字太少按"念案卷"算（案卷原文 + 一句空话的老后门）
+            own = self._ramp(jd.own_chars, c.get("quote_own_min", 0), c.get("quote_own_full", 1))
+            rr = max(rr, 1.0 - own)
         recite = 1.0 - c.get("recite_cut", 0.0) * rr
         if base > 0 and rr > 0:
             base *= 1.0 - c.get("recite_base_cut", 0.0) * rr
@@ -212,7 +216,7 @@ class Trial:
         sp = Spoken(text, eff.deltas, reactions, notes, votes,
                     [{"juror": k, "moved": m} for k, m in cascade])
         self.history.append({"text": text, "deltas": eff.deltas, "quality": jd.quality,
-                             "argument": jd.argument, "manip": jd.manip, "recite": round(jd.recite, 3), "copied": round(getattr(jd, "copied", 0.0), 3), "incomplete": round(jd.incomplete, 3),
+                             "argument": jd.argument, "manip": jd.manip, "recite": round(jd.recite, 3), "copied": round(getattr(jd, "copied", 0.0), 3), "quoted": getattr(jd, "quoted", 0), "own_chars": getattr(jd, "own_chars", 0), "incomplete": round(jd.incomplete, 3),
                              "cascade": [k for k, _ in cascade],
                              "hits": {k: round(v, 3) for k, v in jd.hits.items()},
                              "dislikes": {k: round(v, 3) for k, v in jd.dislikes.items()}, "votes": votes})
