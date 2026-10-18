@@ -67,6 +67,12 @@ button.case .won{color:var(--acq)}
   #roll .rc svg{width:34px;height:34px;margin:0 6px 0 0;flex:none} #roll .rc b{display:inline;font-size:13px} #roll .rc .ro{display:inline;margin-left:4px;font-size:11px}
   #roll .rc .ps{font-size:11px;line-height:1.25;margin-top:1px}
   #overlay h2.rollh{font-size:19px;margin:0} #overlay .rollnote{display:none} #roll{margin:4px -4px 6px}}
+/* 开庭前选陈词方式：选了才算，按「开始陈词」才开庭 */
+.modes{display:flex;gap:8px;margin:10px 0 4px}
+.mo{flex:1;display:block;border:2px solid var(--line);border-radius:10px;padding:6px 10px;cursor:pointer;background:var(--card);line-height:1.35}
+.mo.on{border-color:var(--accent);background:var(--tipbg)}
+.mo input{margin:0 6px 0 0;vertical-align:middle} .mo b{font-size:15px} .mo span{display:block;font-size:12px;color:var(--dim);margin-left:20px}
+#modenote{margin:2px 0 8px;min-height:1.4em}
 /* 开场镜头：仿像素游戏开场，黑底白框，打字机字幕 */
 #intro{position:fixed;left:0;top:0;right:0;bottom:0;z-index:60;background:#000;color:#fff;display:none;flex-direction:column;align-items:center;justify-content:center;padding:16px;cursor:pointer;-webkit-user-select:none;user-select:none}
 #intro canvas{width:640px;max-width:100%;height:auto;border:3px solid #fff;image-rendering:pixelated;image-rendering:crisp-edges;display:block;opacity:0;transition:opacity .25s}
@@ -365,12 +371,14 @@ window.onerror=function(msg, src, line, col){
       var tag=j.acquit?'<span class="a">无罪</span>':(j.swing?'<span class="s">摇摆</span>':'<span class="g">有罪</span>');
       h+='<div class="vr"><b>'+esc(j.name)+'</b>'+tag+'<span>'+esc(j.line)+
         (j.by?'<br><small class="note">'+(v.best&&j.by===v.best.text?'被上面那句打动':'被这句打动：「'+esc(j.by)+'」')+'</small>':'')+'</span></div>'; }
-    h+='<p style="margin-top:16px"><button id="again">再来一次</button>'+(nCases>1?' <button id="pick" class="ghost">选关</button>':'')+'</p>';
+    var offerEasy=!v.acquit && C.modes && C.modes.easy && curMode!=='easy';
+    h+='<p style="margin-top:16px"><button id="again">再来一次</button>'+(offerEasy?' <button id="tryeasy" class="ghost">改用「'+esc(C.modes.easy.label)+'」再来</button>':'')+(nCases>1?' <button id="pick" class="ghost">选关</button>':'')+'</p>';
     record(C.id, v);
     $('box').innerHTML=h; $('vtext').textContent=v.text;
     if(v.best){ $('vbest').textContent='「'+v.best.text+'」'; $('vmoved').textContent=v.best.moved.length?'打动了 '+v.best.moved.join('、'):''; }
     $('overlay').style.display='flex';
     $('again').onclick=function(){ go(C.id); };
+    if($('tryeasy')) $('tryeasy').onclick=function(){ setModePref(C.id,'easy'); go(C.id); };
     if($('pick')) $('pick').onclick=function(){ go(''); };
   }
   // ---- 开场镜头：像素画（调色板 + 行程编码，见 twelve/art/pix.py）----
@@ -478,6 +486,9 @@ window.onerror=function(msg, src, line, col){
   }
   // ---- 关卡：选关、通关记录（只存在玩家自己的浏览器里）----
   function go(id){ location.href=location.pathname+'?'+(code?'code='+encodeURIComponent(code)+'&':'')+(id?'case='+encodeURIComponent(id):''); }
+  function modePref(id){ try{ return localStorage.getItem('twelve_mode_'+id)==='easy'?'easy':''; }catch(e){ return ''; } }
+  function setModePref(id, m){ try{ localStorage.setItem('twelve_mode_'+id, m); }catch(e){} }
+  var curMode='';
   function best(id){ try{ return JSON.parse(localStorage.getItem('twelve_best_'+id)||'null'); }catch(e){ return null; } }
   function record(id, v){
     try{ var b=best(id)||{won:false,votes:0};
@@ -490,7 +501,7 @@ window.onerror=function(msg, src, line, col){
       for(var k=0;k<3;k++) st+=k<c.stars?'★':'☆';
       h+='<button class="case" data-id="'+esc(c.id)+'"><span class="st">'+st+'</span><b></b>'+(c.beta_only?' <span class="beta">仅内测</span>':'')+
         '<span class="bl"></span><span class="meta">需 '+c.win_votes+' 票 · '+Math.round(c.time_limit/60)+' 分钟'+
-        (b?(b.won?' · <span class="won">已胜诉</span>':' · 最好 '+b.votes+' 票'):'')+'</span></button>'; }
+        (b?(b.won?' · <span class="won">已胜诉</span>':' · 最好 '+b.votes+' 票'):'')+(c.modes&&c.modes.length?' · 打字慢？可选「'+esc(c.modes[0].label)+'」'+Math.round(c.modes[0].time_limit/60)+' 分钟 · '+c.modes[0].max_says+' 句':'')+'</span></button>'; }
     $('box').innerHTML=h+'</div>';
     var bs=$('box').getElementsByTagName('button');
     for(var j=0;j<bs.length;j++){ bs[j].getElementsByTagName('b')[0].textContent=list[j].title; bs[j].getElementsByTagName('span')[list[j].beta_only?2:1].textContent=list[j].blurb;
@@ -537,6 +548,7 @@ window.onerror=function(msg, src, line, col){
 
   var saysLeft=0, ending=false;
   function begin(mode){
+    curMode=mode||'';
     post('/api/begin', {mode: mode||''}, function(s, r){
       if(s!==200 || !r.time_left){
         $('box').innerHTML='<h2>开庭失败</h2><p></p><p><button id="again">重新开庭</button></p>';
@@ -630,7 +642,8 @@ window.onerror=function(msg, src, line, col){
       '<li>打一句辩护的话，<b>停一下</b>，看 12 张脸谁点头、谁皱眉。</li>'+
       '<li>满意了按<b>回车</b>，这句话才算说出口。</li>'+
       '<li>'+Math.round(C.time_limit/60)+' 分钟内让至少 <b>'+C.win_votes+'</b> 人倾向无罪（<span style="color:var(--acq)">绿框</span>）。'+(phone?'事实在「案卷」里。':'事实在右边的案卷里。')+'</li></ol>'+
-      '<p><button id="start">开始陈词</button>'+(C.modes&&C.modes.easy?' <button id="easy" class="ghost">'+esc(C.modes.easy.label)+'（'+Math.round(C.modes.easy.time_limit/60)+' 分钟 · '+C.modes.easy.max_says+' 句）</button>':'')+' <button id="more" class="ghost sm">'+(phone?'详细说明 ▾':'收起说明 ▴')+'</button>'+(hasIntro?' <button id="replay" class="ghost sm">重看开场</button>':'')+' <button id="roster" class="ghost sm">看陪审团</button></p>'+
+      (C.modes&&C.modes.easy?'<div class="modes" id="modes">'+'<label class="mo"><input type="radio" name="mode" value=""><b>标准陈词</b><span>'+Math.round(C.time_limit/60)+' 分钟 · 句数不限</span></label>'+'<label class="mo"><input type="radio" name="mode" value="easy"><b>'+esc(C.modes.easy.label)+'</b><span>'+Math.round(C.modes.easy.time_limit/60)+' 分钟 · 限 '+C.modes.easy.max_says+' 句</span></label></div>'+'<p class="note" id="modenote"></p>':'')+
+      '<p><button id="start">开始陈词</button> <button id="more" class="ghost sm">'+(phone?'详细说明 ▾':'收起说明 ▴')+'</button>'+(hasIntro?' <button id="replay" class="ghost sm">重看开场</button>':'')+' <button id="roster" class="ghost sm">看陪审团</button></p>'+
       '<div id="detail" style="display:'+(phone?'none':'block')+'">'+
       '<h3>看懂陪审员</h3>'+
       '<div class="legend"><span>'+face(1)+'点头</span><span>'+face(0)+'没感觉</span><span>'+face(-1)+'皱眉</span></div>'+
@@ -645,8 +658,15 @@ window.onerror=function(msg, src, line, col){
       '<li>别想着下命令——陪审员不吃这一套。时间一开始就不会停。</li></ul></div>';
     $('more').onclick=function(){ var d=$('detail'), open=d.style.display==='none';
       d.style.display=open?'block':'none'; this.textContent=open?'收起说明 ▴':'详细说明 ▾'; };
-    $('brief').textContent=C.brief; $('overlay').style.display='flex'; $('start').onclick=function(){ begin(''); };
-    if($('easy')) $('easy').onclick=function(){ begin('easy'); };
+    $('brief').textContent=C.brief; $('overlay').style.display='flex'; var chosen=C.modes&&C.modes.easy?modePref(C.id):'';
+    if($('modes')){
+      var radios=$('modes').getElementsByTagName('input'), note=$('modenote');
+      var paint=function(){ for(var r=0;r<radios.length;r++){ radios[r].parentNode.className='mo'+(radios[r].checked?' on':''); if(radios[r].checked) chosen=radios[r].value; }
+        note.textContent=chosen==='easy'?C.modes.easy.blurb:'时间一到就宣判，想说多少句都行。'; setModePref(C.id, chosen); };
+      for(var r=0;r<radios.length;r++){ radios[r].checked=(radios[r].value===chosen); radios[r].onchange=paint; }
+      paint();
+    }
+    $('start').onclick=function(){ begin(chosen); };
     $('roster').onclick=function(){ showRoll(showBrief); };
     if(hasIntro) $('replay').onclick=function(){ $('overlay').style.display='none'; playIntro(C.intro, showBrief); };
     };

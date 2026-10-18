@@ -191,7 +191,7 @@ def public_case(case: dict) -> dict:
                       for s in case.get("intro", [])],
             "time_limit": case["config"]["time_limit"], "win_votes": case["config"]["win_votes"],
             "modes": {k: {"label": v.get("label", k), "time_limit": v.get("time_limit", case["config"]["time_limit"]),
-                          "max_says": v.get("max_says", 0)} for k, v in case.get("modes", {}).items()},
+                          "max_says": v.get("max_says", 0), "blurb": v.get("blurb", "")} for k, v in case.get("modes", {}).items()},
             "max_chars": case["config"]["max_chars"], "quote": case["config"].get("quote_max", 0), "debounce": case["config"]["preview_debounce_ms"],
             "swing_band": case["config"].get("swing_band", 0), "hint_cost": case["config"].get("hint_cost", 10),
             "jurors": [{"id": j["id"], "name": j["name"], "role": j["role"], "persona": j["persona"]}
@@ -316,7 +316,9 @@ class App:
                 continue
             out.append({"id": cid, "title": c["title"], "stars": c.get("stars", 1), "blurb": c.get("blurb", ""),
                         "win_votes": c["config"]["win_votes"], "time_limit": c["config"]["time_limit"],
-                        "beta_only": bool(c.get("beta_only"))})
+                        "beta_only": bool(c.get("beta_only")),
+                        "modes": [{"label": m.get("label", k), "time_limit": m.get("time_limit", c["config"]["time_limit"]),
+                                   "max_says": m.get("max_says", 0)} for k, m in c.get("modes", {}).items()]})
         return out
 
     @staticmethod

@@ -79,7 +79,7 @@ def report(events: list, case: dict | None = None) -> str:
     modes = Counter(v.get("mode", "normal") for v in verdicts)
     if "easy" in modes:
         L.append("模式：" + "，".join(
-            f"{'简单' if m == 'easy' else '普通'} {n} 局 胜 {sum(1 for v in verdicts if v.get('mode', 'normal') == m and v.get('acquit'))}"
+            f"{'精炼陈词' if m == 'easy' else '标准陈词'} {n} 局 胜 {sum(1 for v in verdicts if v.get('mode', 'normal') == m and v.get('acquit'))}"
             for m, n in modes.items()))
     chans = Counter(v.get("channel", "release") for v in verdicts)
     if len(chans) > 1 or "beta" in chans:
