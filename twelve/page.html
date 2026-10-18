@@ -74,10 +74,16 @@ button.case .won{color:var(--acq)}
 .mo input{margin:0 6px 0 0;vertical-align:middle} .mo b{font-size:15px} .mo span{display:block;font-size:12px;color:var(--dim);margin-left:20px}
 #modenote{margin:2px 0 8px;min-height:1.4em}
 /* 案卷简版：每条一个类型标签（检方红 / 辩方蓝）+ 一句话 */
-#facts li .tg{display:inline-block;min-width:2.6em;text-align:center;font-size:12px;font-style:normal;border-radius:4px;padding:0 5px;margin-right:6px;color:#fff;background:var(--accent)}
-#facts li .tg.j{background:var(--down)}
+.tg{display:inline-block;min-width:2.6em;text-align:center;font-size:12px;font-style:normal;border-radius:4px;padding:0 5px;margin-right:6px;color:#fff;background:var(--accent)}
+.tg.j{background:var(--down)}
 #facts.v{list-style:none;padding-left:0} #facts.v li{padding:3px 0}
 #docfull{margin-left:6px}
+/* 阅读案卷：开庭前的一页，不计时；点一条展开原文 */
+#readl{list-style:none;padding:0;margin:8px 0}
+#readl li{padding:6px 4px;border-bottom:1px solid var(--line);cursor:pointer;line-height:1.5}
+#readl li:last-child{border-bottom:0}
+#readl .fu{display:none;margin:4px 0 0 0;padding:4px 8px;border-left:3px solid var(--line);font-size:13px;color:var(--dim)}
+#readl li.open .fu{display:block} #readl .ar{float:right;color:var(--dim);font-size:12px}
 /* 开场镜头：仿像素游戏开场，黑底白框，打字机字幕 */
 #intro{position:fixed;left:0;top:0;right:0;bottom:0;z-index:60;background:#000;color:#fff;display:none;flex-direction:column;align-items:center;justify-content:center;padding:16px;cursor:pointer;-webkit-user-select:none;user-select:none}
 #intro canvas{width:640px;max-width:100%;height:auto;border:3px solid #fff;image-rendering:pixelated;image-rendering:crisp-edges;display:block;opacity:0;transition:opacity .25s}
@@ -185,7 +191,7 @@ button:disabled{opacity:.5;cursor:default}
   <div id="main">
     <div class="panel"><div id="log"></div></div>
     <div class="panel" id="dossier">
-      <b>案卷</b><button id="docfull" class="ghost sm" style="display:none">看原文</button><button id="docclose" class="ghost sm">收起</button>
+      <b>案卷</b><button id="docfull" class="ghost sm" style="display:none">展开原文</button><button id="docclose" class="ghost sm">收起</button>
       <div class="note" id="quotehint" style="display:none;margin-top:4px">点一条可以<b>引用</b>到输入框（打字慢也不吃亏），但引完要写出你自己的推理。</div>
       <ol id="facts"></ol>
     </div>
@@ -525,7 +531,7 @@ window.onerror=function(msg, src, line, col){
       else li[m].textContent=list[m];
       if(C&&C.quote) li[m].onclick=quoteIt(m); }
     $('facts').className=(C&&C.quote?'q':'')+(useView?' v':'');
-    $('docfull').style.display=viewOk(list)?'inline-block':'none'; $('docfull').textContent=showFullDoc?'看简版':'看原文';
+    $('docfull').style.display=viewOk(list)?'inline-block':'none'; $('docfull').textContent=showFullDoc?'收起原文':'展开原文';
     if(C&&C.quote) $('quotehint').style.display='block';
   }
   // 引用案卷：点一条，把〔案卷N〕插进输入框；服务端展开成原文给 Jev。引了就要写自己的话
@@ -648,6 +654,25 @@ window.onerror=function(msg, src, line, col){
       var t=setInterval(function(){ if(k>=cs.length){ clearInterval(t); return; } cs[k++].className='rc on'; }, 140);
       $('seat').onclick=function(){ clearInterval(t); try{ localStorage.setItem(rollKey,'1'); }catch(e){} done(); };
     };
+    var readKey='twelve_read_'+C.id;
+    function seenRead(){ try{ return localStorage.getItem(readKey)==='1'; }catch(e){ return false; } }
+    var showRead=function(done){
+      var v=C.dossier_view, ok=v&&v.length===C.dossier.length, h='<h2>阅读案卷</h2><p class="note" style="margin:0" id="readbrief"></p>'+
+        '<p class="note" style="margin:4px 0 0">时钟还没开始走，慢慢读。点一条可以展开原文。</p><ol id="readl"></ol>';
+      $('box').innerHTML=h+'<p style="margin:0"><button id="readok">读完了，看说明</button> <button id="readall" class="ghost sm">全部展开</button></p>';
+      $('readbrief').textContent=C.brief; $('overlay').style.display='flex';
+      var ul=$('readl'), allOpen=false;
+      for(var i=0;i<C.dossier.length;i++){
+        var li=document.createElement('li'), tg=document.createElement('i'), sh=document.createElement('span'), ar=document.createElement('span'), fu=document.createElement('div');
+        tg.className='tg'+(ok&&v[i].side==='检'?' j':''); tg.textContent=ok?v[i].side+'·'+v[i].tag:(C.dossier[i].indexOf('检方')===0?'检':'辩');
+        sh.textContent=ok?v[i].text:C.dossier[i]; ar.className='ar'; fu.className='fu'; fu.textContent=C.dossier[i];
+        li.appendChild(tg); li.appendChild(sh); if(ok){ ar.textContent='▾'; li.appendChild(ar); li.appendChild(fu); }
+        li.onclick=function(){ this.className=this.className==='open'?'':'open'; };
+        ul.appendChild(li); }
+      $('readall').onclick=function(){ allOpen=!allOpen; var lis=ul.getElementsByTagName('li'); for(var k=0;k<lis.length;k++) lis[k].className=allOpen?'open':''; this.textContent=allOpen?'全部收起':'全部展开'; };
+      if(!ok) $('readall').style.display='none';
+      $('readok').onclick=function(){ try{ localStorage.setItem(readKey,'1'); }catch(e){} done(); };
+    };
     var showBrief=function(){
     var phone=window.innerWidth<=640;
     // 手机上一屏就要看得到「开始陈词」：先给三步和按钮，图例和窍门收进「详细说明」（电脑上默认展开）
@@ -657,7 +682,7 @@ window.onerror=function(msg, src, line, col){
       '<li>满意了按<b>回车</b>，这句话才算说出口。</li>'+
       '<li>'+Math.round(C.time_limit/60)+' 分钟内让至少 <b>'+C.win_votes+'</b> 人倾向无罪（<span style="color:var(--acq)">绿框</span>）。'+(phone?'事实在「案卷」里。':'事实在右边的案卷里。')+'</li></ol>'+
       (C.modes&&C.modes.easy?'<div class="modes" id="modes">'+'<label class="mo"><input type="radio" name="mode" value=""><b>标准陈词</b><span>'+Math.round(C.time_limit/60)+' 分钟 · 句数不限</span></label>'+'<label class="mo"><input type="radio" name="mode" value="easy"><b>'+esc(C.modes.easy.label)+'</b><span>'+Math.round(C.modes.easy.time_limit/60)+' 分钟 · 限 '+C.modes.easy.max_says+' 句</span></label></div>'+'<p class="note" id="modenote"></p>':'')+
-      '<p><button id="start">开始陈词</button> <button id="more" class="ghost sm">'+(phone?'详细说明 ▾':'收起说明 ▴')+'</button>'+(hasIntro?' <button id="replay" class="ghost sm">重看开场</button>':'')+' <button id="roster" class="ghost sm">看陪审团</button></p>'+
+      '<p><button id="start">开始陈词</button> <button id="more" class="ghost sm">'+(phone?'详细说明 ▾':'收起说明 ▴')+'</button>'+(hasIntro?' <button id="replay" class="ghost sm">重看开场</button>':'')+' <button id="roster" class="ghost sm">看陪审团</button> <button id="reread" class="ghost sm">读案卷</button></p>'+
       '<div id="detail" style="display:'+(phone?'none':'block')+'">'+
       '<h3>看懂陪审员</h3>'+
       '<div class="legend"><span>'+face(1)+'点头</span><span>'+face(0)+'没感觉</span><span>'+face(-1)+'皱眉</span></div>'+
@@ -682,9 +707,11 @@ window.onerror=function(msg, src, line, col){
     }
     $('start').onclick=function(){ begin(chosen); };
     $('roster').onclick=function(){ showRoll(showBrief); };
+    $('reread').onclick=function(){ showRead(showBrief); };
     if(hasIntro) $('replay').onclick=function(){ $('overlay').style.display='none'; playIntro(C.intro, showBrief); };
     };
-    var afterIntro=function(){ if(seenRoll()) showBrief(); else showRoll(showBrief); };
+    var afterRoll=function(){ if(seenRead()) showBrief(); else showRead(showBrief); };
+    var afterIntro=function(){ if(seenRoll()) afterRoll(); else showRoll(afterRoll); };
     if(hasIntro && !seenIntro(C.id)){ $('overlay').style.display='none'; playIntro(C.intro, afterIntro); } else afterIntro();
     if(r.backend==='mock') $('ms').textContent='（离线模拟模式）';
     if(r.channel==='beta'){ var bg=document.createElement('span'); bg.className='beta'; bg.textContent='内测版'; $('title').parentNode.insertBefore(bg, $('title').nextSibling); document.title='十二人（内测版）'; }
