@@ -12,3 +12,6 @@ cloudflared.exe
 # 配乐：自己放进来本地用，不进仓库（版权曲不能分发）
 twelve/audio/*
 !twelve/audio/README.md
+
+# 子代理的临时 worktree
+.claude/worktrees/
