@@ -198,7 +198,7 @@ twelve/
   logbook.py         运行日志：每个事件一行 JSON 写文件，除打字预览外同时打印 `LOG {...}` 到标准输出
   stats.py           日志汇总报告（/admin 页面和命令行共用）
   page.html          界面：12 张脸、计时、记录、案卷、提示；手机上计时+脸+输入框固定在顶部（键盘弹出也看得见），脸缩成 6×2 小头像（点头像看人设），最新记录在最上，案卷从底部弹出；ES5；每 50ms 看一眼输入框，变化即发（输入法拼音中不发，事件卡住 1.5s 自动解除），同时只保留一个在途预览
-  tests/             单元测试（test_twelve / test_stats）、hooks.jsonl / hooks_case2.jsonl（Jev 判断评测集）、eval_hooks.py
+  tests/             单元测试（test_twelve 整体流程 / test_rules 规则引擎 / test_stats / test_logbook）、hooks.jsonl / hooks_case2.jsonl（Jev 判断评测集）、eval_hooks.py
 game/                v0.1《停电的档案馆》，仍可运行；jev_client.py 被 twelve 复用
 ```
 
@@ -210,7 +210,7 @@ python -m twelve.server --jev mock          # 离线模拟（关键词版，不�
 python -m twelve.tests.eval_hooks --jev real   # Jev 判断准确率
 python -m unittest discover -s twelve/tests -t .
 python -m game.netcheck                     # 网络测速，含"每次新建连接"与"连接复用"的对比
-python -m twelve.stats [日志文件 ...]          # 运行统计；默认读 twelve/logs/twelve.jsonl，也接受从 Render 日志页复制的文本
+python -m twelve.stats [日志文件 ...] [--since 日期] [--until 日期] [--case 案子]   # 运行统计；默认读 twelve/logs/twelve.jsonl，也接受从 Render 日志页复制的文本
 ```
 
 Windows：双击 `play_twelve.bat`（真实 Jev，读同目录 `key.txt`，沿用 `TYPESAFE_PROXY` 等设置）或 `play_twelve_mock.bat`。
@@ -334,7 +334,7 @@ Jev 不开源，只能用托管 API。社区有接口兼容的开源 System One 
 
 ## 11. 分活给 DeepSeek（省 Claude 的 Token）
 
-**用户的默认要求（10-19）：以后干活能用 DeepSeek 就用 DeepSeek。** 所以默认先问"这活能不能分"：边界能写清、结果能验收的执行活（写测试、按规格改代码、批量文案 / 数据、迁移、样板）一律走 delegate（`agent.py` 或 `delegate.py`），我只出说明和验收；只有设计 / 架构 / 复杂算法、调试找原因、调数值平衡、判断陈词好坏、安全相关、或小到写说明比做还费事（几行的改动）的才自己做。下面"30 条以上"的门槛只针对 `delegate.py` 批量补全，不限制代理代工。
+**规则（10-19 用户定）：大活交给 DeepSeek，小活自己做。** 起初用户要求"能用 DeepSeek 就用"，两次对照实测（见本节下面）后收窄为：边界清晰、要写或读上千行（预计自己要 15 次以上工具调用）的执行活——一整套测试、按规格的多文件改动、迁移、大批量文案 / 数据——走 `agent.py`，我只出说明和分级验收；自己十几次工具调用能做完的小活自己做（分出去主模型 Token 反而多 10–17%）。设计 / 架构 / 复杂算法、调试找原因、调数值平衡、判断陈词好坏、安全相关的活一律自己做。`delegate.py` 批量补全仍是 30 条以上才用。
 
 `.claude/skills/delegate/`（来自 koma404/Claude-WorkSpace 的 main）：把批量、自包含的机械活交给 DeepSeek，结果写文件、终端只回一行状态。凭据由代理注入，脚本里没有 key。
 - **用**：一次 30 条以上的相似小活（批量生成测试陈词、翻译、日志分类、陪审员台词 / 标签初稿），一条指令能说清，结果能写校验或抽样核对，错了代价低。
@@ -355,4 +355,5 @@ Jev 不开源，只能用托管 API。社区有接口兼容的开源 System One 
     - 注意：在主会话里上下文常有 20 万 token，派活多出来的每一轮更贵，省的比例会比子代理实验低；真正划算的是"要写 / 读上千行"的活。
     - 两组代理都报出了几处源码小瑕疵（未改）：`trial.py` 文档字符串还写着 quality − 2（代码是 quality_center）；`judge._PUNCT` 不含「」，没展开的引用括号会算进 own_chars；`Judge.judge` 的 cost 为 0 时会退回按 token 估；`effect().recited` 不看 copied；`verdict` 的 by 读的是事件可改的 `start`。
   - 顺带验证了防线：一次派活因为基准空，DeepSeek 把整个仓库拷进副本（65 个文件），`--allow` 标成越界、没有被合并。
+- **实验产出已合进仓库**（10-19，每项取隐藏检查和代码质量更好的那份，都是"自己做"组的）：`stats.py` 修了两处健壮性问题（缺 ts / ts 非数字按 0 排序；缺 votes 的裁决不计入平均和分布）、新增 `filter_events` 和 `--since / --until / --case` 选项（`python -m twelve.stats --case case2 --since 2026-10-18`）；新测试 `test_logbook.py`（24 个）、`test_rules.py`（100 个，规则引擎全覆盖）。全套 193 个测试。
 - 只传它需要的字段（例如标签只给身份和人设），不要把陪审员的在意点 / 雷区发出去。

@@ -1,10 +1,11 @@
-"""把运行日志汇总成一页报告：python -m twelve.stats [日志文件 ...]
+"""把运行日志汇总成一页报告：python -m twelve.stats [日志文件 ...] [--since X] [--until X] [--case X]
 
 不给文件时读 twelve/logs/twelve.jsonl。也接受从 Render 日志页复制下来的文本：
 每行找到第一个 `{` 当作 JSON 解析，解析不了的行跳过（复制的日志里没有打字预览，延迟只能看裁决里的每局统计）。
 同一事件出现多次（文件和复制的平台日志混在一起）会按时间戳去重。"""
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from collections import Counter, defaultdict
@@ -31,7 +32,41 @@ def load(paths) -> list:
                     continue
                 seen.add(key)
                 out.append(e)
-    out.sort(key=lambda e: e.get("ts", 0))
+    out.sort(key=_ts)
+    return out
+
+
+def _ts(e):
+    """排序用的时间戳：缺 ts 或 ts 不是数字时按 0（排在最前）。"""
+    t = e.get("ts")
+    return t if isinstance(t, (int, float)) and not isinstance(t, bool) else 0
+
+
+def _bound(s: str, end: bool) -> str:
+    """把 YYYY-MM-DD 补成当天的开头 / 结尾，便于和事件的 t（YYYY-MM-DD HH:MM:SS）按字符串比较。"""
+    s = s.strip()
+    if len(s) == 10:
+        return s + (" 23:59:59" if end else " 00:00:00")
+    return s
+
+
+def filter_events(events, since=None, until=None, case=None) -> list:
+    """按时间（t 字段，两端都包含）和案子筛选，返回新列表。没有 case 字段的事件算 case1。"""
+    lo = _bound(since, False) if since else None
+    hi = _bound(until, True) if until else None
+    out = []
+    for e in events:
+        if lo or hi:
+            t = e.get("t")
+            if not isinstance(t, str) or not t:
+                continue
+            if lo and t < lo:
+                continue
+            if hi and t > hi:
+                continue
+        if case is not None and e.get("case", "case1") != case:
+            continue
+        out.append(e)
     return out
 
 
@@ -90,8 +125,9 @@ def report(events: list, case: dict | None = None) -> str:
     L.append("\n== 胜负 ==")
     if verdicts:
         wins = sum(1 for v in verdicts if v.get("acquit"))
-        L.append(f"胜诉 {wins}/{len(verdicts)}（{wins / len(verdicts):.0%}）；平均 {_avg([v.get('votes') for v in verdicts]):.1f} 票无罪")
-        dist = Counter(v.get("votes") for v in verdicts)
+        votes = [v["votes"] for v in verdicts if v.get("votes") is not None]
+        L.append(f"胜诉 {wins}/{len(verdicts)}（{wins / len(verdicts):.0%}）；平均 {_f(_avg(votes))} 票无罪")
+        dist = Counter(votes)
         L.append("票数分布：" + "  ".join(f"{k}票×{dist[k]}" for k in sorted(dist)))
         L.append(f"结束方式：主动结束 {sum(1 for v in verdicts if v.get('reason') == 'rested')}，"
                  f"时间到 {sum(1 for v in verdicts if v.get('reason') == 'timeout')}")
@@ -178,10 +214,21 @@ def main(argv=None) -> int:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(errors="replace")
-    paths = (argv if argv is not None else sys.argv[1:]) or ["twelve/logs/twelve.jsonl"]
+    ap = argparse.ArgumentParser(prog="python -m twelve.stats", description="运行日志汇总报告")
+    ap.add_argument("paths", nargs="*", help="日志文件（默认 twelve/logs/twelve.jsonl）")
+    ap.add_argument("--since", help="起始时间，YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS（包含）")
+    ap.add_argument("--until", help="截止时间，只给日期时到那天结束（包含）")
+    ap.add_argument("--case", help="只看某个案子，如 case2（没有 case 字段的事件算 case1）")
+    args = ap.parse_intermixed_args(argv if argv is not None else sys.argv[1:])
+    paths = args.paths or ["twelve/logs/twelve.jsonl"]
     try:
         from .server import load_case
-        print(report(load(paths), load_case()))
+        events = filter_events(load(paths), since=args.since, until=args.until, case=args.case)
+        try:
+            case = load_case(args.case or "case1")
+        except OSError:
+            case = load_case()
+        print(report(events, case))
     except OSError as e:
         print(f"读不到日志：{e}", file=sys.stderr)
         return 1
