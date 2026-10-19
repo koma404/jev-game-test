@@ -34,7 +34,7 @@ class Judgment:
     cost: float = 0.0                             # 这次请求花了多少美元（OpenRouter 返回；没有就按 token 估）
 
 
-_PUNCT = re.compile(r"[\s，。；：、！？“”‘’（）()\[\],.;:!?\"'—\-…]")
+_PUNCT = re.compile(r"[\s，。；：、！？“”‘’（）()「」『』《》\[\],.;:!?\"'—\-…]")
 
 
 def copy_ratio(text: str, dossier: list, min_run: int = 6, min_chars: int = 14) -> float:
@@ -172,7 +172,8 @@ class Judge:
         if getattr(self.client, "is_local", False):
             jd.cost = 0.0                       # 自部署模型不花钱
         else:
-            jd.cost = float(u.get("cost") or u.get("input_tokens", 0) * 0.042e-6)
+            c = u.get("cost")         # 返回 0 就是 0（免费），只有没给 cost 才估
+            jd.cost = float(c) if c is not None else u.get("input_tokens", 0) * 0.042e-6
         return jd
 
 

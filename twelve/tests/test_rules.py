@@ -234,6 +234,13 @@ class ReciteTests(unittest.TestCase):
         e3 = self.eff(recite=0.7, copied=0.7)      # 取大不相加：仍是 0.5
         self.assertAlmostEqual(e3.deltas["a"], 0.9)
 
+    def test_recited_flag_counts_copied_without_recite_ramp(self):
+        # recite_full = 1（不设渐进区间）时，照搬原文也要标「念案卷」
+        case = make_case(recite_from=0.0, recite_full=1.0)
+        e = Trial(case).effect(J(case, hits={"a": 1.0}, quality=4, copied=0.95))
+        self.assertTrue(e.recited)
+        self.assertFalse(Trial(case).effect(J(case, hits={"a": 1.0}, quality=4, recite=0.4)).recited)
+
     def test_recite_does_not_shrink_negative_base(self):
         e = self.eff(quality=0, recite=0.9)
         self.assertAlmostEqual(e.deltas["b"], -0.2)
@@ -647,6 +654,15 @@ class VerdictTests(unittest.TestCase):
         self.assertEqual(t.verdict()["says"], 2)
 
 
+    def test_by_uses_start_at_trial_open_not_event_patched(self):
+        case = make_case()
+        t = Trial(case)
+        t.speak("翻b", J(case, hits={"b": 1.0}, quality=2))
+        t.apply_event({"id": "ev", "jurors": [{"id": "b", "start": 2}]})   # 事件改了 start 字段
+        js = {j["id"]: j for j in t.verdict()["jurors"]}
+        self.assertEqual(js["b"]["by"], "翻b")
+
+
 class ClockModeTests(unittest.TestCase):
     def test_time_left_before_and_after_begin(self):
         clock = Clock()
@@ -881,9 +897,9 @@ class JudgeTests(unittest.TestCase):
         jd = Judge(case, client).judge(text)
         self.assertEqual(client.states[0]["player_said"], text)
         self.assertEqual(jd.quoted, 0)
-        # 注意：_PUNCT 不含「」，不开引用时玩家打的「」也算字：16 + 2 + 2
-        self.assertEqual(jd.own_chars, 20)
-        self.assertAlmostEqual(jd.copied, 16 / 20)
+        # 「」和其他标点一样不算字：16 + 2
+        self.assertEqual(jd.own_chars, 18)
+        self.assertAlmostEqual(jd.copied, 16 / 18)
         self.assertEqual(jd.quality, 3.0)
         self.assertEqual(jd.hits["a"], 0.8)
         self.assertEqual(jd.ms, 33.0)
@@ -917,6 +933,10 @@ class JudgeTests(unittest.TestCase):
         case = self.case(0)
         jd = Judge(case, FakeClient(usage={"input_tokens": 1000})).judge("话")
         self.assertAlmostEqual(jd.cost, 1000 * 0.042e-6)
+
+    def test_cost_zero_from_usage_is_not_estimated(self):
+        jd = Judge(self.case(0), FakeClient(usage={"cost": 0, "input_tokens": 1000})).judge("话")
+        self.assertEqual(jd.cost, 0.0)
 
     def test_cost_zero_without_usage(self):
         self.assertEqual(Judge(self.case(0), FakeClient()).judge("话").cost, 0.0)

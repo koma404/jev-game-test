@@ -3,13 +3,13 @@
 每位陪审员有一个倾向值 lean（负=倾向有罪，正=倾向无罪），裁决时 lean > 0 投无罪。
 一句陈词对陪审员 j 的影响：
     质量系数 qf  = quality_floor + quality_step * quality          （0.4 … 1.0）
-    基础影响     = base_weight * (quality - 2)                      （所有人都听得到的好坏）
+    基础影响     = base_weight * (quality - quality_center)          （所有人都听得到的好坏；quality_center 默认 2）
     戳中加成     = P(hit_j) * hit_weight * qf * 专注系数 * 重复衰减
     雷区惩罚     = P(dislike_j) * dislike_weight
     delta_j      = clamp(基础 + 戳中 - 雷区, ±max_delta)
     专注系数：一句话戳中超过 focus_limit 人时按比例稀释（"什么都说等于什么都没说"）
     重复衰减：同一论点每多讲一次，乘一次 repeat_decay；讲到第 repeat_annoy+1 次起，所有人再 -repeat_penalty（听烦了）
-    念案卷：戳中加成再乘 (1 - recite_cut * P(recite))——事实要说出它意味着什么才打动人
+    念案卷：戳中加成再乘 (1 - recite_cut * rr)，rr = P(recite) 从 recite_from 到 recite_full 的渐进——事实要说出它意味着什么才打动人
     照搬案卷原文：代码比对逐字重合的比例 copied，从 copy_from 到 copy_full 渐进，与 P(recite) 取大；
     念案卷时「人人都听得到的好坏」（基础分）也按 recite_base_cut 缩掉——照抄的话不该白送所有人好感
     话没说完：说出口时戳中加成再乘 (1 - incomplete_cut * ramp(P))，基础分不为正；打字预览不计较（边打边看脸是核心玩法）
@@ -53,6 +53,7 @@ class Trial:
         self.jurors = case["jurors"]
         self.clock = clock
         self.leans = {j["id"]: float(j["start"]) for j in self.jurors}
+        self.start = dict(self.leans)   # 开庭时的倾向（事件改陪审员字段也不影响"原本倾向有罪"的判断）
         self.arg_uses: dict = {}
         self.history: list = []
         self.manip_strikes = 0
@@ -139,7 +140,7 @@ class Trial:
                 - jd.dislikes.get(k, 0.0) * c["dislike_weight"]
             deltas[k] = max(-c["max_delta"], min(c["max_delta"], d))
         return Effect(deltas, diluted=focus < 1.0, repeated=uses > 0, annoyed=annoyed,
-                      recited=rr >= 0.3 if hi < 1.0 else jd.recite > 0.5, cut_off=cut >= 0.5, hit_ids=hit_ids)
+                      recited=rr >= 0.3 if hi < 1.0 else rr > 0.5, cut_off=cut >= 0.5, hit_ids=hit_ids)
 
     def faces(self, deltas: dict) -> dict:
         t = self.cfg["face_threshold"]
@@ -292,7 +293,7 @@ class Trial:
                         "swing": -swing < self.leans[j["id"]] <= 0,
                         # 原本倾向有罪、最后被说服的人：最打动 TA 的那句
                         "by": self.moved_most.get(j["id"], (0, None))[1]
-                              if self.leans[j["id"]] > 0 and j["start"] <= 0 else None,
+                              if self.leans[j["id"]] > 0 and self.start[j["id"]] <= 0 else None,
                         "line": j["acquit"] if self.leans[j["id"]] > 0 else j["guilty"]}
                        for j in self.jurors],
         }
