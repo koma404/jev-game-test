@@ -16,6 +16,7 @@ import fnmatch
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -33,7 +34,10 @@ RULES = """\
 你是被主代理（Claude）派来干活的执行者，在一个 git worktree 里工作，改动会被审阅后再合并。
 - 只做任务里写的事，只改任务允许的文件；不要顺手重构、改格式、改无关代码、加没要求的功能。
 - 不要 git commit / push / checkout，不要删除或改写任务没提到的文件，不要安装依赖。
-- 任务给了检查命令就跑它，跑通才算完成；跑不通先修，修三次还不通就停下如实报告。
+- 先把任务点名的文件一次读完、定好方案，再动手；不要"读一点、改一点"地来回。
+- 写完再集中验证一次：只跑任务给的检查命令（和你新写 / 改的测试），不要跑全量测试，除非任务要求；
+  不要"验证、小改、再验证"反复循环。检查不过就修，修三次还不过就停下如实报告。
+- 跑命令一律套 `timeout 120`。命令超时或没有新输出，先查原因，不要原样再等；同一件事连续两次没有进展就停下汇报。
 - 信息不足、无法不猜测地完成时，不要猜着做：最后只回复一行 `NEED: 你的问题`。
 - 结束时用不超过 5 行汇报：改了哪些文件、各做了什么、检查结果。不要寒暄。
 """
@@ -56,7 +60,7 @@ def find_pi():
 
 def make_worktree(repo):
     os.makedirs(WORK_ROOT, exist_ok=True)
-    run = os.path.join(WORK_ROOT, time.strftime("%m%d-%H%M%S"))
+    run = os.path.join(WORK_ROOT, time.strftime("%m%d-%H%M%S") + f"-{os.getpid()}")
     wt = os.path.join(run, "wt")
     sh(["git", "worktree", "add", "--detach", wt, "HEAD"], cwd=repo)
     dirty = sh(["git", "diff", "HEAD", "--binary"], cwd=repo).stdout
@@ -112,6 +116,7 @@ def main():
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--thinking", default="off", help="off / low / medium / high（默认 off：便宜、快）")
     ap.add_argument("--timeout", type=int, default=900, help="整个代理最多跑多少秒（默认 900）")
+    ap.add_argument("--idle", type=int, default=120, help="连续多少秒没有任何新输出就停掉代理（默认 120）")
     ap.add_argument("--context-files", action="store_true", help="让 pi 读 CLAUDE.md / AGENTS.md（默认不读：本仓库的很长，每轮都要计费）")
     a = ap.parse_args()
 
@@ -151,13 +156,34 @@ def main():
         cmd.insert(-2, "-nc")
     events = os.path.join(run, "events.jsonl")
     t0 = time.time()
-    timed_out = False
+    timed_out = idled = False
+    rc = None
     with open(events, "w") as out, open(os.path.join(run, "stderr.txt"), "w") as err:
-        try:
-            rc = subprocess.run(cmd, cwd=wt, env=env, stdin=subprocess.DEVNULL, stdout=out, stderr=err,
-                                timeout=a.timeout).returncode
-        except subprocess.TimeoutExpired:
-            rc, timed_out = -1, True
+        p = subprocess.Popen(cmd, cwd=wt, env=env, stdin=subprocess.DEVNULL, stdout=out, stderr=err,
+                             start_new_session=True)
+        size, last = 0, time.time()
+        while True:
+            try:
+                rc = p.wait(timeout=2)
+                break
+            except subprocess.TimeoutExpired:
+                pass
+            now = time.time()
+            cur = os.path.getsize(events)
+            if cur != size:   # 代理还在吐事件（模型输出、工具进度）就算有进展
+                size, last = cur, now
+            if now - t0 > a.timeout:
+                timed_out = True
+            elif now - last > a.idle:   # 空闲熔断：干等没有新输出，不陪它等
+                idled = True
+            if timed_out or idled:
+                try:
+                    os.killpg(p.pid, signal.SIGTERM)
+                    p.wait(timeout=10)
+                except (ProcessLookupError, subprocess.TimeoutExpired):
+                    os.killpg(p.pid, signal.SIGKILL)
+                rc = -1
+                break
     secs = time.time() - t0
 
     sh(["git", "add", "-A"], cwd=wt)
@@ -183,6 +209,8 @@ def main():
     problems = []
     if timed_out:
         problems.append(f"超时 {a.timeout}s")
+    elif idled:
+        problems.append(f"卡住：{a.idle}s 没有新输出，已停掉")
     elif rc != 0:
         problems.append(f"pi 退出码 {rc}")
     if errors:
@@ -195,7 +223,7 @@ def main():
         problems.append("越界改动: " + ",".join(outside))
     if check_ok is False:
         problems.append("检查没通过（见 check.txt）")
-    status = "OK" if not problems else ("FAIL" if (timed_out or need or not files or rc != 0) else "PARTIAL")
+    status = "OK" if not problems else ("FAIL" if (timed_out or idled or need or not files or rc != 0) else "PARTIAL")
     line = (f"{status} {secs:.0f}s turns={turns} tools={tools} tokens={tin}+{tout} ~${cost:.4f} "
             f"files={len(files)} ({stat or '无改动'}) check={'-' if check_ok is None else ('pass' if check_ok else 'FAIL')} "
             f"dir={run}")

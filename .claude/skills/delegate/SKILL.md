@@ -35,7 +35,7 @@ python3 $D/agent.py --task-file task.md --allow 'twelve/tests/test_x.py' --check
 - 终端只打印一行：`OK|PARTIAL|FAIL 秒数 turns tools tokens 花费 files check dir problem=…`。同目录有 `patch.diff`、`final.txt`（代理的汇报）、`check.txt`、`events.jsonl`（完整过程，排查时才看）、`task.md`。
 - `--allow`：允许改的文件（逗号分隔 glob），越界的改动在状态行标出（PARTIAL）。`--check`：写进任务让代理自己跑，结束后脚本再在 worktree 里独立跑一遍。
 - 默认不让 pi 读 CLAUDE.md（本仓库的很长，每轮都要计费）；任务需要的背景写进任务说明。真需要时加 `--context-files`。
-- 其他：`--timeout`（默认 900 秒，到点强停）、`--thinking low|medium|high`（默认 off）、`--model`。用完 `python3 $D/agent.py clean` 删 worktree。
+- 其他：`--idle`（默认 120 秒：代理连续这么久没有任何新输出——比如干等一个卡住的测试——就停掉，状态行标「卡住」）、`--timeout`（默认 900 秒，到点强停）、`--thinking low|medium|high`（默认 off）、`--model`。用完 `python3 $D/agent.py clean` 删 worktree。
 
 ### 写任务说明（决定成败的部分）
 
@@ -46,13 +46,18 @@ python3 $D/agent.py --task-file task.md --allow 'twelve/tests/test_x.py' --check
 4. **验收**：检查命令，必须跑通；需要断言具体行为（"检查具体数字出现在文本里"）。
 5. **数量和范围上限**：防止堆砌。
 
-脚本自动附加的规则：只做写明的事、不 commit / push / 装依赖、检查不过修三次还不过就停、信息不足回 `NEED: 问题`、结束时 ≤5 行汇报。
+脚本自动附加的规则：只做写明的事、不 commit / push / 装依赖；先一次读完点名的文件再动手；写完集中验证一次、只跑给定的检查（不跑全量）；命令套 `timeout 120`，连续两次没进展就停；检查不过修三次还不过就停；信息不足回 `NEED: 问题`；结束时 ≤5 行汇报。
+任务说明里**点名要读的文件**（"先读 a.py 的 X 函数和 b.py"），让它一次读完，少走"读一点、改一点"的碎步。
 
-### 验收（我必须做，不能跳）
+### 验收（必须做，但按风险分级，不要把代工重做一遍）
 
-1. 状态行 `OK` 才往下看；`NEED:` → 补说明重派；`PARTIAL`（越界 / 检查失败）→ 看 problem 决定是改说明重派还是自己收尾。
-2. 读 `final.txt` 和 `patch.diff`（diff 太长就先 `--stat`，再挑关键部分读）。看：是否只改了该改的、测试断言的是不是真实行为（不是把错误输出抄成期望值）、有没有偷偷放宽检查。
-3. `git apply <dir>/patch.diff`，在原仓库跑完整测试，通过再提交。代理汇报里提到的"发现的问题"由我判断要不要修。
+`--check` 是脚本在 worktree 里**独立**跑的，不是代理自己报的，结果可信：**不要再重跑同一个检查**，也不要每次逐行读 diff——那等于一件事做两遍，省不下 Token。
+
+1. 状态行 `OK` 才往下看；`NEED:` → 补说明重派；`PARTIAL`（越界 / 检查失败）、`卡住` → 看 problem 决定改说明重派还是自己收尾。
+2. 按风险看多少：
+   - **低风险**（新增测试、文档、文案、独立的新文件、只动 `--allow` 里的一两个文件）：读 `final.txt` + `git apply --stat`，抽看 diff 里一两处关键位置。测试类的活专门抽查：断言是不是从源码读出的真实行为，而不是把当前输出抄成期望值（这脚本查不出）。
+   - **核心逻辑**（`trial.py` 数值、`judge.py`、`server.py`、案子 json、`page.html` 的流程）：读 diff 的关键部分。这类活多半本来就该我自己做。
+3. `git apply <dir>/patch.diff`，在原仓库跑一次完整测试，只看最后一行（`OK` / 失败数）。代理汇报里提到的"发现的问题"由我判断要不要修。
 4. `agent.py clean`。
 
 ## delegate.py：一次性补全
