@@ -5,7 +5,7 @@
 
 后端选择：
   - 设置了 DEEPSEEK_API_KEY  -> 直连 api.deepseek.com（模型默认 deepseek-chat）
-  - 否则                     -> OpenRouter（凭据由代理注入，模型默认 deepseek/deepseek-v4.1-flash）
+  - 否则                     -> OpenRouter（凭据由代理注入，模型默认 deepseek/deepseek-v4.1-flash-1017）
 
 单任务：
   delegate.py --task "把下面内容翻译成英文" --input a.md --out out/a.en.md
@@ -43,7 +43,7 @@ def backend(model):
     key = os.environ.get("DEEPSEEK_API_KEY")
     if key:
         return DEEPSEEK_URL, {"Authorization": f"Bearer {key}"}, model or "deepseek-chat"
-    return OPENROUTER_URL, {}, model or "deepseek/deepseek-v4.1-flash"
+    return OPENROUTER_URL, {}, model or "deepseek/deepseek-v4.1-flash-1017"
 
 
 def call(prompt, system, model, max_tokens, think=False, retries=3):
